@@ -33,8 +33,12 @@ Inductive stmt :=
     (* | "breakpoint" stmtEnd *)
     (* | "pass" stmtEnd *)
     | sequence: stmt -> stmt -> stmt
+
+    (* return variable name, method name args *)
     | assignCallMethodStmt: string -> string -> list expr -> stmt
-    | emitSignalStmt: string -> option stmt -> list expr -> stmt
+
+    (* signal name, callback function if needed, args of signal *)
+    | emitSignalStmt: string -> option string -> list expr -> stmt
     | skip: stmt
 .
 
@@ -43,6 +47,8 @@ Inductive topLevelDecl :=
     (* | constDecl: string -> expr -> topLevelDecl *)
     | signalDecl: string -> list string -> topLevelDecl
     (* | enumDecl *)
+    
+    (* method name, arguments, return name, body *)
     | methodDecl: string -> list string -> string -> stmt -> topLevelDecl
     | readyDecl: stmt -> topLevelDecl
     | processDecl: stmt -> topLevelDecl 
@@ -125,7 +131,7 @@ Fixpoint runStmt (fuel: nat) (v1: valuation) (st: stmt) (v2: valuation): Prop :=
             /\ v1 $? s <> None
         | awaitStmt s => False
         | sequence s1 s2 => exists vmid, runStmt fuel' v1 s1 vmid /\ runStmt fuel' vmid s2 v2
-        | assignCallMethodStmt s ret args => False
+        | assignCallMethodStmt ret s args => False
         | emitSignalStmt s opt_callback args => False
         | skip => v1 = v2
         end
