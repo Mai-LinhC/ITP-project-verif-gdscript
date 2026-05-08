@@ -34,8 +34,8 @@ Inductive stmt :=
     (* | "pass" stmtEnd *)
     | sequence: stmt -> stmt -> stmt
 
-    (* return variable name, method name, valuation number, args *)
-    | assignCallMethodStmt: string -> string -> nat -> list expr -> stmt
+    (* return variable name, method name, args *)
+    | assignCallMethodStmt: string -> string -> list expr -> stmt
 
     (* signal name, callback function if needed (name * valuation_number), args of signal *)
     | emitSignalStmt: string -> option (string * nat) -> list expr -> stmt
@@ -138,13 +138,13 @@ Fixpoint runStmt (fuel: nat) (v1: valuation) (st: stmt) (v2: valuation): Prop :=
             ((interp (Var sig_name) v1 = 0) /\ v2 = (v1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)))
             | _ => exists vmid, runStmt fuel' v1 s1 vmid /\ runStmt fuel' vmid s2 v2
             end
-        | assignCallMethodStmt ret s n args => False (*TODO*)
+        | assignCallMethodStmt ret s args => False (*TODO*)
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
         If None, do nothing. In both cases, set the signal to true in valuation to show it has been emitted.
         Check if a function is waiting for the signal. If so, call it after the callback but before resuming execution*)
         | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (v1 $+ (sig_name, varAss 1)) /\
             match opt_callback with
-                | Some (f, n) => runStmt fuel' vmid (assignCallMethodStmt "garb" f n args) vmid'
+                | Some (f, n) => runStmt fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
                 | None => vmid = vmid'
                 end /\ match vmid' $? ("waiting_" ++ sig_name)%string with
                     | Some (waitAss _ b) => runStmt fuel' vmid' b v2
@@ -188,10 +188,16 @@ Fixpoint runStmtDual (fuel: nat) (v1: valuation * valuation) (st: stmt) (v2: val
                 ((interp (Var sig_name) (fst v1) = 0) /\ v2 = (((fst v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2))))
                 | _ => exists vmid, runStmtDual fuel' v1 s1 vmid /\ runStmtDual fuel' vmid s2 v2
                 end
-            | assignCallMethodStmt ret s n args => False
+            | assignCallMethodStmt ret s args => False
             | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (((fst v1) $+ (sig_name, varAss 1)), ((snd v1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
-                    | Some (f, n) => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f n args) vmid'
+                    (*Context switch if n = 2*)
+                    | Some (f, n) =>  match n with
+                        | 2 => exists vswitch vreturn, vswitch = (((fst vmid) $+ (("current")%string, varAss 2)), snd vmid) /\ runStmtDual fuel' vswitch (assignCallMethodStmt "garb" f args) vreturn
+                        /\ vmid' = (((fst vreturn) $+ (("current")%string, varAss 1)), snd vreturn)
+                        | _ => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
+                        end
+                    
                     | None => vmid = vmid'
                     end /\ match (fst vmid') $? ("waiting_" ++ sig_name)%string with
                         | Some (waitAss n b) => 
@@ -219,10 +225,16 @@ Fixpoint runStmtDual (fuel: nat) (v1: valuation * valuation) (st: stmt) (v2: val
                 ((interp (Var sig_name) (fst v1) = 0) /\ v2 = (((fst v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2))))
                 | _ => exists vmid, runStmtDual fuel' v1 s1 vmid /\ runStmtDual fuel' vmid s2 v2
                 end
-            | assignCallMethodStmt ret s n args => False (*The n is the program number of the program containing the fuction, refering to the index of the valuation to read to get the function*)
+            (*The n is the program number of the program containing the fuction, refering to the index of the valuation to read to get the function*)
+            (*Note : We could just context switch before *)
+            | assignCallMethodStmt ret s args => False 
             | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (((fst v1) $+ (sig_name, varAss 1)), ((snd v1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
-                    | Some (f, n) => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f n args) vmid'
+                    | Some (f, n) =>  match n with
+                        | 1 => exists vswitch vreturn, vswitch = (((fst vmid) $+ (("current")%string, varAss 1)), snd vmid) /\ runStmtDual fuel' vswitch (assignCallMethodStmt "garb" f args) vreturn
+                        /\ vmid' = (((fst vreturn) $+ (("current")%string, varAss 2)), snd vreturn)
+                        | _ => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
+                        end
                     | None => vmid = vmid'
                     end /\ match (fst vmid') $? ("waiting_" ++ sig_name)%string with
                         | Some (waitAss n b) => 
