@@ -230,7 +230,20 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
                 /\ vl1 = vl2)
                 | _ => exists vgmid vlmid, runStmtDual fuel' vg1 vl1 s1 vgmid vlmid /\ runStmtDual fuel' vgmid vlmid s2 vg2 vl2
                 end
-            | assignCallMethodStmt ret s args => False
+            | assignCallMethodStmt ret method_name args =>
+                match (fst vg1) $? method_name with 
+                | Some (methodAss name_args found_ret found_body) => 
+                    exists vlmid,
+                    runStmtDual fuel' vg1
+                    (fold_left 
+                        (fun (acc: valuation) (arg_argname: expr * string) => 
+                            (acc $+ ((snd arg_argname), varAss (interp2 (fst arg_argname) (fst vg1) vl1)))
+                        ) 
+                        (combine args name_args) ($0)) 
+                    found_body vg2 vlmid
+                    /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
+                | _ => False
+                end
             | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     (*Context switch if n = 2*)
@@ -268,7 +281,20 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
                 end
             (*The n is the program number of the program containing the fuction, refering to the index of the valuation to read to get the function*)
             (*Note : We could just context switch before *)
-            | assignCallMethodStmt ret s args => False 
+            | assignCallMethodStmt ret method_name args =>
+                match (snd vg1) $? method_name with 
+                | Some (methodAss name_args found_ret found_body) => 
+                    exists vlmid,
+                    runStmtDual fuel' vg1
+                    (fold_left 
+                        (fun (acc: valuation) (arg_argname: expr * string) => 
+                            (acc $+ ((snd arg_argname), varAss (interp2 (fst arg_argname) (snd vg1) vl1)))
+                        ) 
+                        (combine args name_args) ($0)) 
+                    found_body vg2 vlmid
+                    /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
+                | _ => False
+                end
             | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     | Some (f, n) =>  match n with
