@@ -59,7 +59,7 @@ Inductive topLevelDecl :=
     | EndDecl: topLevelDecl
 .
 
-Inductive assignment:=
+Inductive assignment :=
  | varAss (n: nat)
  | methodAss (args: list string) (ret: string) (body: stmt)
  | waitAss (pn: nat) (body: stmt)
@@ -163,7 +163,12 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
             ((interp (Var sig_name) vg1 = 0) /\ vg2 = (vg1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)) /\ vl1 = vl2)
             | _ => exists vgmid vlmid, runStmt fuel' vg1 vl1 s1 vgmid vlmid /\ runStmt fuel' vgmid vlmid s2 vg2 vl2
             end
-        | assignCallMethodStmt ret s args => False (*TODO*)
+        | assignCallMethodStmt ret method_name args => (*TODO*)
+            match v1 $? method_name with 
+            | Some (methodAss name_args found_ret found_body) => False
+                (* runStmt fuel' (v1 $+ (args fold_left (arg, acc) ($0) (fun arg => ((interp arg v1) = a) ))) *)
+            | _ => False
+            end
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
         If None, do nothing. In both cases, set the signal to true in valuation to show it has been emitted.
         Check if a function is waiting for the signal. If so, call it after the callback but before resuming execution*)
