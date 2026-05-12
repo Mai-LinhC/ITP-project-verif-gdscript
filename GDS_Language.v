@@ -131,7 +131,12 @@ Fixpoint runStmt (fuel: nat) (v1: valuation) (st: stmt) (v2: valuation): Prop :=
             /\ v1 $? s <> None
         | awaitStmt s => False
         | sequence s1 s2 => exists vmid, runStmt fuel' v1 s1 vmid /\ runStmt fuel' vmid s2 v2
-        | assignCallMethodStmt ret s args => False
+        | assignCallMethodStmt ret method_name args => 
+            match v1 $? method_name with 
+            | Some (methodAss name_args found_ret found_body) => False
+                (* runStmt fuel' (v1 $+ (args fold_left (arg, acc) ($0) (fun arg => ((interp arg v1) = a) ))) *)
+            | _ => False
+            end
         | emitSignalStmt s opt_callback args => False
         | skip => v1 = v2
         end
