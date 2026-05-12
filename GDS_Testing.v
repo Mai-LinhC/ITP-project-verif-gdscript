@@ -58,7 +58,36 @@ Theorem runIf :
     $0 v2 )
     -> v2 $? "ret" = Some (varAss 10).
 Proof.
-Admitted.
+    intros.
+    inversion H; repeat special_match.
+    inversion H0; repeat special_match.
+    clear H0; inversion H2; repeat special_match.
+    clear H2; inversion H3.
+    -repeat special_match.
+    clear H3; inversion H0; inversion H4.
+    clear H0 H4.
+    destruct H2, H3; simpl in H2, H3; subst.
+    inversion H1; subst.
+    inversion H6; destruct H0; simpl in H0; subst.
+    assert ("ret" = "ret") by reflexivity.
+    epose proof (lookup_add_eq _ _ H0).
+    apply H2.
+    
+    -clear H3; inversion H0; inversion H4.
+    clear H0 H4.
+    destruct H3, H5; simpl in H3, H5; subst.
+    destruct H2; simpl in H2.
+    simpl in H0.
+    assert ("a" <> "b") by congruence.
+    epose proof (lookup_add_ne _ _ H3) as Hlookne.
+    rewrite Hlookne in H0.
+    assert("a" = "a") by reflexivity.
+    epose proof (lookup_add_eq _ _ H4) as Hlooka.
+    rewrite Hlooka in H0.
+    rewrite lookup_add_eq in H0; simpl in H0.
+        + discriminate H0.
+        + reflexivity.
+Qed.
 
 Theorem runWhile :
     forall v2, 
