@@ -117,40 +117,65 @@ Definition interp_binop (b: BinopName) (n1 n2: nat) :=
   | Binop b e1 e2 => interp_binop b (interp e1 v) (interp e2 v)
   end.
 
+  Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: nat :=
+    match e with
+  | Const n => n
+  | Var x => match vl $? x with 
+    | Some a =>
+        match a with
+        | varAss n => n
+        | methodAss args ret body => 0
+        | waitAss n st => 0
+        end
+    | None => match vg $? x with 
+        | Some a =>
+            match a with
+            | varAss n => n
+            | methodAss args ret body => 0
+            | waitAss n st => 0
+            end
+        | None => 0
+        end
+    end
+  | Binop b e1 e2 => interp_binop b (interp2 e1 vg vl) (interp2 e2 vg vl)
+  end.
 
-Fixpoint runStmt (fuel: nat) (v1: valuation) (st: stmt) (v2: valuation): Prop :=
+
+Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: valuation) (vl2: valuation): Prop :=
      match fuel with
     | O => False
     | S fuel' => 
         match st with
-        | varDeclStmt s e => exists n, n = interp e v1  /\ v2 = (v1 $+ (s, varAss n))
-        | ifStmt e s1 s2 => (exists r, r = interp e v1 /\ r <> 0 /\ runStmt fuel' v1 s1 v2) \/
-            (0 = interp e v1 /\ runStmt fuel' v1 s2 v2)
-        | whileStmt e s => (exists r vmid, r = interp e v1 /\ r <> 0 /\ runStmt fuel' v1 s vmid 
-            /\ runStmt fuel' vmid st v2) \/ (0 = interp e v1 /\ v1 = v2)
-        | assignmentStmt s e => exists n, n = interp e v1 /\ v2 = (v1 $+ (s, varAss n))
-            /\ v1 $? s <> None
-        | awaitStmt sig_name => v1 = v2
+        | varDeclStmt s e => exists n, n = interp e vl1  /\ vl2 = (vl1 $+ (s, varAss n))
+        | ifStmt e s1 s2 => (exists r, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s1 vg2 vl2) \/
+            (0 = interp2 e vg1 vl1 /\ runStmt fuel' vg1 vl1 s2 vg2 vl2)
+        | whileStmt e s => (exists r vgmid vlmid, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s vgmid vlmid
+            /\ runStmt fuel' vgmid vlmid st vg2 vl2) \/ (0 = interp2 e vg1 vl1 /\ vg1 = vg2 /\ vl1 = vl2)
+        (*Check local val, if exists, reassign, else check global, if exists reassign, else crash (prop is false)*)
+        | assignmentStmt s e => (vl1 $? s <> None /\ exists n, n = interp e vl1 /\ vl2 = (vl1 $+ (s, varAss n))) \/
+            (vg1 $? s <> None /\ vl1 $? s = None /\ exists n, n = interp e vg1 /\ vg2 = (vg1 $+ (s, varAss n)))
+        (*We check awaits in Seqs, so if we reach this case, it is either the only instruction in the program or the last one, either way it does nothing*)
+        | awaitStmt sig_name => vg1 = vg2 /\ vl1 = vl2
         | sequence s1 s2 => match s1 with
             (*If we want to await a signal, we check if it has been emitted yet or no. If yes, we continue as a normal Seq,
             else, we add a waiting assignment to the valuation with the body of the Seq, which will be checked when the signal is emitted*)
-            | awaitStmt sig_name => (exists r, (interp (Var sig_name) v1) = r /\ r <> 0 /\ runStmt fuel' v1 s2 v2 ) \/ 
-            ((interp (Var sig_name) v1 = 0) /\ v2 = (v1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)))
-            | _ => exists vmid, runStmt fuel' v1 s1 vmid /\ runStmt fuel' vmid s2 v2
+            | awaitStmt sig_name => (exists r, (interp (Var sig_name) vg1) = r /\ r <> 0 /\ runStmt fuel' vg1 vl1 s2 vg2 vl2) \/ 
+            ((interp (Var sig_name) vg1 = 0) /\ vg2 = (vg1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)) /\ vl1 = vl2)
+            | _ => exists vgmid vlmid, runStmt fuel' vg1 vl1 s1 vgmid vlmid /\ runStmt fuel' vgmid vlmid s2 vg2 vl2
             end
         | assignCallMethodStmt ret s args => False (*TODO*)
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
         If None, do nothing. In both cases, set the signal to true in valuation to show it has been emitted.
         Check if a function is waiting for the signal. If so, call it after the callback but before resuming execution*)
-        | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (v1 $+ (sig_name, varAss 1)) /\
+        | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (vg1 $+ (sig_name, varAss 1)) /\
             match opt_callback with
-                | Some (f, n) => runStmt fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
-                | None => vmid = vmid'
-                end /\ match vmid' $? ("waiting_" ++ sig_name)%string with
-                    | Some (waitAss _ b) => runStmt fuel' vmid' b v2
-                    | _ => vmid' = v2
+                | Some (f, n) => runStmt fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
+                | None => vgmid = vgmid' /\ vl1 = vlmid'
+                end /\ match vgmid' $? ("waiting_" ++ sig_name)%string with
+                    | Some (waitAss _ b) => runStmt fuel' vgmid' vlmid' b vg2 vl2
+                    | _ => vgmid' = vg2 /\ vlmid' = vl2
                     end
-        | skip => v1 = v2
+        | skip => vg1 = vg2 /\ vl1 = vl2
         end
     end.
 
@@ -162,8 +187,8 @@ Fixpoint run (fuel: nat) (v1: valuation) (d: topLevelDecl) (v2: valuation): Prop
         match d with
         | classVarDecl s e => exists n, n = interp e v1  /\ v2 = (v1 $+ (s, varAss n))
         | methodDecl s l ret st => v2 = (v1 $+ (s, methodAss l ret st))
-        | readyDecl st => (*stmt ->*) runStmt fuel' v1 st v2 (*TODO: voir cette histoire de stmt -> *)
-        | processDecl st => (* stmt ->  *) exists v', runStmt fuel' v1 st v'  /\ run fuel' v' d v2   
+        | readyDecl st => (*stmt ->*) exists vl2, runStmt fuel' v1 ($0) st v2 vl2 (*TODO: voir cette histoire de stmt -> *)
+        | processDecl st => (* stmt ->  *) exists v' vl2, runStmt fuel' v1 $0 st v' vl2  /\ run fuel' v' d v2   
         | SequenceDecl d1 d2 => exists vmid, run fuel' v1 d1 vmid /\ run fuel' vmid d2 v2 
         | EndDecl => v1 = v2
         end 
