@@ -1,5 +1,6 @@
 From Stdlib Require Import String.
 From Stdlib Require Export NArith Arith.
+From Stdlib Require Import List.
 Require Import Lab07Map.
 
 Inductive BinopName :=
@@ -119,8 +120,8 @@ Definition interp_binop (b: BinopName) (n1 n2: nat) :=
 
   Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: nat :=
     match e with
-  | Const n => n
-  | Var x => match vl $? x with 
+    | Const n => n
+    | Var x => match vl $? x with 
     | Some a =>
         match a with
         | varAss n => n
@@ -142,11 +143,12 @@ Definition interp_binop (b: BinopName) (n1 n2: nat) :=
 
 
 Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: valuation) (vl2: valuation): Prop :=
-     match fuel with
+    match fuel with
     | O => False
     | S fuel' => 
         match st with
-        | varDeclStmt s e => exists n, n = interp e vl1  /\ vl2 = (vl1 $+ (s, varAss n))
+        (* check what we're gonna write with interp2 and assign local var *)
+        | varDeclStmt s e => exists n, n = interp2 e vg1 vl1  /\ vl2 = (vl1 $+ (s, varAss n))
         | ifStmt e s1 s2 => (exists r, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s1 vg2 vl2) \/
             (0 = interp2 e vg1 vl1 /\ runStmt fuel' vg1 vl1 s2 vg2 vl2)
         | whileStmt e s => (exists r vgmid vlmid, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s vgmid vlmid
@@ -163,10 +165,18 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
             ((interp (Var sig_name) vg1 = 0) /\ vg2 = (vg1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)) /\ vl1 = vl2)
             | _ => exists vgmid vlmid, runStmt fuel' vg1 vl1 s1 vgmid vlmid /\ runStmt fuel' vgmid vlmid s2 vg2 vl2
             end
-        | assignCallMethodStmt ret method_name args => (*TODO*)
-            match v1 $? method_name with 
-            | Some (methodAss name_args found_ret found_body) => False
-                (* runStmt fuel' (v1 $+ (args fold_left (arg, acc) ($0) (fun arg => ((interp arg v1) = a) ))) *)
+        | assignCallMethodStmt ret method_name args =>
+            match vg1 $? method_name with 
+            | Some (methodAss name_args found_ret found_body) => 
+                exists vlmid,
+                runStmt fuel' vg1 
+                (fold_left 
+                    (fun (acc: valuation) (arg_argname: expr * string) => 
+                        (acc $+ ((snd arg_argname), varAss (interp2 (fst arg_argname) vg1 vl1)))
+                    ) 
+                    (combine args name_args) ($0)) 
+                found_body vg2 vlmid
+                /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
             | _ => False
             end
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
