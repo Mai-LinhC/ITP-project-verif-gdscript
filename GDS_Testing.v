@@ -63,9 +63,58 @@ Admitted.
 Theorem runWhile :
     forall v2, 
     (runStmt 10 $0 $0 
-    ((((var "a" := Const 5 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
-    var "ret" := Var "a" + Const 2) ;; skip) )
+    ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
+    var "ret" := Var "a" + Const 5) ;; skip) )
     $0 v2) 
-    -> (v2 $? "ret" = Some (varAss 2)).
+    -> (v2 $? "ret" = Some (varAss 5)).
 Proof.
-Admitted.
+    intros v_res H.
+    inversion_clear H; repeat special_match.
+    inversion_clear H; repeat special_match.
+    inversion_clear H; repeat special_match.
+    inversion_clear H. destruct H3 ; simpl in H; subst.
+    assert (ha: "a" = "a") by reflexivity; 
+    epose proof (lookup_add_eq _ _ ha) as Hlooka.
+    inversion_clear H2; [repeat special_match | do 2 special_match].
+    - (* h3 = assign -> (*Check local val, if exists, reassign, else check global, if exists reassign, else crash (prop is false)*) *)
+    inversion H3. 
+        + (* Check local val, if exists, reassign, *)
+        destruct H as [h1 [n [h3 [h4 h5]]]].
+        simpl in h3.
+        rewrite Hlooka in h3.
+        subst.
+        clear H3 H2 x4 h1.
+        inversion H4. 
+        -- destruct H as [inta [vgmid [vlmid [h1 [h2 [h3 h4]]]]]].
+        inversion h3. 
+        ++ 
+            destruct H as [h1' [n [h3' [h4' h5']]]].
+            simpl in h3'; rewrite (lookup_add_eq _ _ ha) in h3'; subst.
+            clear h3 h1' H4 h2.
+            inversion_clear h4.
+            * destruct H as [inta [vgmid' [vlmid [h1 [h2 [h3 h4]]]]]].
+            simpl in h1.
+            rewrite (lookup_add_eq _ _ ha) in h1.
+            congruence.
+            * destruct H as [h [h1 h2]].
+            subst.
+            inversion H1. 
+            destruct H as [h1 h2].
+            inversion H0.
+            subst. simpl.
+            rewrite (lookup_add_eq _ _ ha).
+            assert (hret : "ret" = "ret") by reflexivity.
+            rewrite (lookup_add_eq _ _ hret).
+            reflexivity.
+        ++
+            destruct H as [h1' [h2' h3']].
+            rewrite (lookup_add_eq _ _ ha) in h2'; congruence.
+        -- simpl in H. epose proof (lookup_add_eq _ _ ha) as Hlookaa; rewrite Hlookaa in H; destruct H; discriminate.
+        + (* check global, knowing doesnt exist locally, if global exists reassign, *)
+        destruct H as [h1 [h2 h3]].
+        rewrite Hlooka in h2; congruence.
+    - simpl in H.
+    rewrite Hlooka in H; discriminate.
+
+
+Qed.
