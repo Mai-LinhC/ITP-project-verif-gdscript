@@ -154,8 +154,8 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
         | whileStmt e s => (exists r vgmid vlmid, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s vgmid vlmid
             /\ runStmt fuel' vgmid vlmid st vg2 vl2) \/ (0 = interp2 e vg1 vl1 /\ vg1 = vg2 /\ vl1 = vl2)
         (*Check local val, if exists, reassign, else check global, if exists reassign, else crash (prop is false)*)
-        | assignmentStmt s e => (vl1 $? s <> None /\ exists n, n = interp e vl1 /\ vl2 = (vl1 $+ (s, varAss n))) \/
-            (vg1 $? s <> None /\ vl1 $? s = None /\ exists n, n = interp e vg1 /\ vg2 = (vg1 $+ (s, varAss n)))
+        | assignmentStmt s e => (vl1 $? s <> None /\ exists n, n = interp2 e vg1 vl1 /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg1 = vg2) \/
+            (vg1 $? s <> None /\ vl1 $? s = None /\ exists n, n = interp2 e vg1 vl1 /\ vg2 = (vg1 $+ (s, varAss n)) /\ vl1 = vl2)
         (*We check awaits in Seqs, so if we reach this case, it is either the only instruction in the program or the last one, either way it does nothing*)
         | awaitStmt sig_name => vg1 = vg2 /\ vl1 = vl2
         | sequence s1 s2 => match s1 with
@@ -210,83 +210,84 @@ Fixpoint run (fuel: nat) (v1: valuation) (d: topLevelDecl) (v2: valuation): Prop
     end.
 
 
-Fixpoint runStmtDual (fuel: nat) (v1: valuation * valuation) (st: stmt) (v2: valuation * valuation): Prop :=
+Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (st: stmt) (vg2: valuation * valuation) (vl2: valuation): Prop :=
      match fuel with
     | O => False
-    | S fuel' => match interp (Var "current") (fst v1) with
+    | S fuel' => match interp (Var "current") (fst vg1) with
         | 1 =>  match st with
-            | varDeclStmt s e => exists n, n = interp e (fst v1)  /\ v2 = (((fst v1) $+ (s, varAss n)), snd v1)
-            | ifStmt e s1 s2 => (exists r, r = interp e (fst v1) /\ r <> 0 /\ runStmtDual fuel' v1 s1 v2) \/
-                (0 = interp e (fst v1) /\ runStmtDual fuel' v1 s2 v2)
-            | whileStmt e s => (exists r vmid, r = interp e (fst v1) /\ r <> 0 /\ runStmtDual fuel' v1 s vmid 
-                /\ runStmtDual fuel' vmid st v2) \/ (0 = interp e (fst v1) /\ v1 = v2)
-            | assignmentStmt s e => exists n, n = interp e (fst v1) /\ v2 = ((fst v1) $+ (s, varAss n), snd v1)
-                /\ (fst v1) $? s <> None
-            | awaitStmt sig_name => v1 = v2
+            | varDeclStmt s e => exists n, n = interp2 e (fst vg1) vl1  /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg1 = vg2 
+            | ifStmt e s1 s2 => (exists r, r = interp2 e (fst vg1) vl1 /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s1 vg2 vl2) \/
+                (0 = interp2 e (fst vg1) vl1 /\ runStmtDual fuel' vg1 vl1 s2 vg2 vl2)
+            | whileStmt e s => (exists r vgmid vlmid, r = interp2 e (fst vg1) vl1 /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s vgmid vlmid 
+                /\ runStmtDual fuel' vgmid vlmid st vg2 vl2) \/ (0 = interp2 e (fst vg1) vl1 /\ vg1 = vg2 /\ vl1 = vl2)
+            (*Check local val, if exists, reassign, else check global, if exists reassign, else crash (prop is false)*)
+            | assignmentStmt s e => (vl1 $? s <> None /\ exists n, n = interp2 e (fst vg1) vl1 /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg1 = vg2) \/
+                ((fst vg1) $? s <> None /\ vl1 $? s = None /\ exists n, n = interp2 e (fst vg1) vl1 /\ vg2 = ((fst vg1) $+ (s, varAss n), snd vg1) /\ vl1 = vl2)
+            | awaitStmt sig_name => vg1 = vg2 /\ vl1 = vl2
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => (exists r, (interp (Var sig_name) (fst v1)) = r  /\ r <> 0 /\ runStmtDual fuel' v1 s2 v2 ) \/ 
-                ((interp (Var sig_name) (fst v1) = 0) /\ v2 = (((fst v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2))))
-                | _ => exists vmid, runStmtDual fuel' v1 s1 vmid /\ runStmtDual fuel' vmid s2 v2
+                | awaitStmt sig_name => (exists r, (interp (Var sig_name) (fst vg1)) = r  /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s2 vg2 vl2) \/ 
+                ((interp (Var sig_name) (fst vg1) = 0) /\ vg2 = (((fst vg1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd vg1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)))
+                /\ vl1 = vl2)
+                | _ => exists vgmid vlmid, runStmtDual fuel' vg1 vl1 s1 vgmid vlmid /\ runStmtDual fuel' vgmid vlmid s2 vg2 vl2
                 end
             | assignCallMethodStmt ret s args => False
-            | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (((fst v1) $+ (sig_name, varAss 1)), ((snd v1) $+ (sig_name, varAss 1))) /\
+            | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     (*Context switch if n = 2*)
                     | Some (f, n) =>  match n with
-                        | 2 => exists vswitch vreturn, vswitch = (((fst vmid) $+ (("current")%string, varAss 2)), snd vmid) /\ runStmtDual fuel' vswitch (assignCallMethodStmt "garb" f args) vreturn
-                        /\ vmid' = (((fst vreturn) $+ (("current")%string, varAss 1)), snd vreturn)
-                        | _ => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
+                        | 2 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 2)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt "garb" f args) vgreturn vldump
+                        /\ vgmid' = (((fst vgreturn) $+ (("current")%string, varAss 1)), snd vgreturn) /\ vl1 = vlmid'
+                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
                         end
-                    
-                    | None => vmid = vmid'
-                    end /\ match (fst vmid') $? ("waiting_" ++ sig_name)%string with
+                    | None => vgmid = vgmid' /\ vl1 = vlmid'
+                    end /\ match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
                         | Some (waitAss n b) => 
                         (*Set current to 2 if n = 2 else leave it like that, then runStmt of the body, and switch back current to 1*)
                             match n with
-                                | 2 => exists vswitch vreturn, vswitch = (((fst vmid') $+ (("current")%string, varAss 2)), snd vmid') /\ runStmtDual fuel' vswitch b vreturn
-                                /\ v2 = (((fst vreturn) $+ (("current")%string, varAss 1)), snd vreturn)
-                                | _ => runStmtDual fuel' vmid' b v2
+                                | 2 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid') $+ (("current")%string, varAss 2)), snd vgmid') /\ runStmtDual fuel' vgswitch ($0) b vgreturn vldump
+                                /\ vg2 = (((fst vgreturn) $+ (("current")%string, varAss 1)), snd vgreturn) /\ vlmid' = vl2
+                                | _ => runStmtDual fuel' vgmid' vlmid' b vg2 vl2
                                 end
-                        | _ => vmid' = v2
+                        | _ => vgmid' = vg2 /\ vlmid' = vl2
                         end
-            | skip => v1 = v2
+            | skip => vg1 = vg2 /\ vl1 = vl2
             end
         | 2 => match st with
-            | varDeclStmt s e => exists n, n = interp e (snd v1)  /\ v2 = (fst v1, ((snd v1) $+ (s, varAss n)))
-            | ifStmt e s1 s2 => (exists r, r = interp e (snd v1) /\ r <> 0 /\ runStmtDual fuel' v1 s1 v2) \/
-                (0 = interp e (snd v1) /\ runStmtDual fuel' v1 s2 v2)
-            | whileStmt e s => (exists r vmid, r = interp e (snd v1) /\ r <> 0 /\ runStmtDual fuel' v1 s vmid 
-                /\ runStmtDual fuel' vmid st v2) \/ (0 = interp e (snd v1) /\ v1 = v2)
-            | assignmentStmt s e => exists n, n = interp e (snd v1) /\ v2 = (fst v1, (snd v1) $+ (s, varAss n))
-                /\ (snd v1) $? s <> None
-            | awaitStmt sig_name => v1 = v2
+            | varDeclStmt s e => exists n, n = interp2 e (snd vg1) vl1  /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg1 = vg2
+            | ifStmt e s1 s2 => (exists r, r = interp2 e (snd vg1) vl1 /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s1 vg2 vl2) \/
+                (0 = interp2 e (snd vg1) vl1 /\ runStmtDual fuel' vg1 vl1 s2 vg2 vl2)
+            | whileStmt e s => (exists r vgmid vlmid, r = interp2 e (snd vg1) vl1 /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s vgmid vlmid 
+                /\ runStmtDual fuel' vgmid vlmid st vg2 vl2) \/ (0 = interp2 e (snd vg1) vl1 /\ vg1 = vg2 /\ vl1 = vl2)
+            | assignmentStmt s e => (vl1 $? s <> None /\ exists n, n = interp2 e (snd vg1) vl1 /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg1 = vg2) \/
+                ((snd vg1) $? s <> None /\ vl1 $? s = None /\ exists n, n = interp2 e (snd vg1) vl1 /\ vg2 = (fst vg1, (snd vg1) $+ (s, varAss n)) /\ vl1 = vl2)
+            | awaitStmt sig_name => vg1 = vg2 /\ vl1 = vl2
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => (exists r, (interp (Var sig_name) (fst v1)) = r  /\ r <> 0 /\ runStmtDual fuel' v1 s2 v2 ) \/ 
-                ((interp (Var sig_name) (fst v1) = 0) /\ v2 = (((fst v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd v1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2))))
-                | _ => exists vmid, runStmtDual fuel' v1 s1 vmid /\ runStmtDual fuel' vmid s2 v2
+                | awaitStmt sig_name => (exists r, (interp (Var sig_name) (fst vg1)) = r  /\ r <> 0 /\ runStmtDual fuel' vg1 vl1 s2 vg2 vl2 ) \/ 
+                ((interp (Var sig_name) (fst vg1) = 0) /\ vg2 = (((fst vg1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), ((snd vg1) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2))))
+                | _ => exists vgmid vlmid, runStmtDual fuel' vg1 vl1 s1 vgmid vlmid /\ runStmtDual fuel' vgmid vlmid s2 vg2 vl2
                 end
             (*The n is the program number of the program containing the fuction, refering to the index of the valuation to read to get the function*)
             (*Note : We could just context switch before *)
             | assignCallMethodStmt ret s args => False 
-            | emitSignalStmt sig_name opt_callback args => exists vmid vmid', vmid = (((fst v1) $+ (sig_name, varAss 1)), ((snd v1) $+ (sig_name, varAss 1))) /\
+            | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     | Some (f, n) =>  match n with
-                        | 1 => exists vswitch vreturn, vswitch = (((fst vmid) $+ (("current")%string, varAss 1)), snd vmid) /\ runStmtDual fuel' vswitch (assignCallMethodStmt "garb" f args) vreturn
-                        /\ vmid' = (((fst vreturn) $+ (("current")%string, varAss 2)), snd vreturn)
-                        | _ => runStmtDual fuel' vmid (assignCallMethodStmt "garb" f args) vmid'
+                        | 1 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 1)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt "garb" f args) vgreturn vldump
+                        /\ vgmid' = (((fst vgreturn) $+ (("current")%string, varAss 2)), snd vgreturn)
+                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
                         end
-                    | None => vmid = vmid'
-                    end /\ match (fst vmid') $? ("waiting_" ++ sig_name)%string with
+                    | None => vgmid = vgmid' /\ vl1 = vlmid'
+                    end /\ match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
                         | Some (waitAss n b) => 
                         (*Set current to 1 if n = 1 else leave it like that, then runStmt of the body, and switch back current to 2*)
                             match n with
-                                | 1 => exists vswitch vreturn, vswitch = (((fst vmid') $+ (("current")%string, varAss 1)), snd vmid') /\ runStmtDual fuel' vswitch b vreturn
-                                /\ v2 = (((fst vreturn) $+ (("current")%string, varAss 2)), snd vreturn)
-                                | _ => runStmtDual fuel' vmid' b v2
+                                | 1 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid') $+ (("current")%string, varAss 1)), snd vgmid') /\ runStmtDual fuel' vgswitch ($0) b vgreturn vldump
+                                /\ vg2 = (((fst vgreturn) $+ (("current")%string, varAss 2)), snd vgreturn) /\ vlmid' = vl2
+                                | _ => runStmtDual fuel' vgmid' vlmid' b vg2 vl2
                                 end
-                        | _ => vmid' = v2
+                        | _ => vgmid' = vg2 /\ vlmid' = vl2
                         end
-            | skip => v1 = v2
+            | skip => vg1 = vg2 /\ vl1 = vl2
             end
         | _ => False
         end
@@ -305,16 +306,16 @@ Fixpoint runDual (fuel: nat) (v1: valuation * valuation) (dA: topLevelDecl) (dB:
         | 1 => match dA with
             | classVarDecl s e => exists n, n = interp e (fst v1)  /\ v2 = (((fst v1) $+ (s, varAss n)), snd v1)
             | methodDecl s l ret st => v2 = (((fst v1) $+ (s, methodAss l ret st)), snd v1)
-            | readyDecl st => runStmtDual fuel' v1 st v2
+            | readyDecl st => exists vl2, runStmtDual fuel' v1 ($0) st v2 vl2
             | processDecl st1 => match dB with
-                | processDecl st2 => exists vmid vmid', runStmtDual fuel' v1 st1 vmid /\ runStmtDual fuel' vmid st2 vmid' /\ runDual fuel' vmid' dA dB v2 (*runStmt process A puis B, puis run infini*)
+                | processDecl st2 => exists vmid vmid' vl2 vl2', runStmtDual fuel' v1 ($0) st1 vmid vl2 /\ runStmtDual fuel' vmid ($0) st2 vmid' vl2' /\ runDual fuel' vmid' dA dB v2 (*runStmt process A puis B, puis run infini*)
                 | EndDecl => run fuel' (fst v1) dA (fst v2) (*runStmt process A, puis run infini*)(*Quid de snd v2, si B await A dans son ready, il faut pouvoir l'appeler avec la bonne valuation*)
                 | _ => exists vmid, vmid = (((fst v1) $+ (("current")%string, varAss 2)), snd v1) /\ runDual fuel' vmid dA dB v2
                 end
             | SequenceDecl d1 d2 => exists vmid, runDual fuel' v1 d1 dB vmid /\ runDual fuel' vmid d2 dB v2
             | EndDecl => match dB with (*If B process : runStmt B + run B infini, else juste run B infini*)
                                         (*If B EndDecl, v1 = v2 pour finir l'execution*)
-                | processDecl st2 => exists vmid vmid', vmid = (((fst v1) $+ (("current")%string, varAss 2)), snd v1) /\ runStmtDual fuel' vmid st2 vmid' /\ runDual fuel' vmid' dA dB v2
+                | processDecl st2 => exists vmid vmid' vl2, vmid = (((fst v1) $+ (("current")%string, varAss 2)), snd v1) /\ runStmtDual fuel' vmid ($0) st2 vmid' vl2 /\ runDual fuel' vmid' dA dB v2
                 | EndDecl => v1 = v2
                 | _ => exists vmid, vmid = (((fst v1) $+ (("current")%string, varAss 2)), snd v1) /\ runDual fuel' vmid dA dB v2
                 end 
@@ -323,7 +324,7 @@ Fixpoint runDual (fuel: nat) (v1: valuation * valuation) (dA: topLevelDecl) (dB:
         | 2 => match dB with
             | classVarDecl s e => exists n, n = interp e (snd v1)  /\ v2 = (fst v1, ((snd v1) $+ (s, varAss n)))
             | methodDecl s l ret st => v2 = (fst v1, ((snd v1) $+ (s, methodAss l ret st)))
-            | readyDecl st => runStmtDual fuel' v1 st v2
+            | readyDecl st => exists vl2, runStmtDual fuel' v1 ($0) st v2 vl2
             | processDecl st => exists vmid, vmid = (((fst v1) $+ (("current")%string, varAss 1)), snd v1) /\ runDual fuel' vmid dA dB v2
             | SequenceDecl d1 d2 => exists vmid, runDual fuel' v1 dA d1 vmid /\ runDual fuel' vmid dA d2 v2 
             | EndDecl => exists vmid, vmid = (((fst v1) $+ (("current")%string, varAss 1)), snd v1) /\ runDual fuel' vmid dA dB v2
