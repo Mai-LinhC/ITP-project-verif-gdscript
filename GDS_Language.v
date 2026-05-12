@@ -35,8 +35,8 @@ Inductive stmt :=
     (* | "pass" stmtEnd *)
     | sequence: stmt -> stmt -> stmt
 
-    (* return variable name, method name, args *)
-    | assignCallMethodStmt: string -> string -> list expr -> stmt
+    (* optional return variable name, method name, args *)
+    | assignCallMethodStmt: option string -> string -> list expr -> stmt
 
     (* signal name, callback function if needed (name * valuation_number), args of signal *)
     | emitSignalStmt: string -> option (string * nat) -> list expr -> stmt
@@ -49,8 +49,8 @@ Inductive topLevelDecl :=
     (* | signalDecl: string -> list string -> topLevelDecl removed because useless*)
     (* | enumDecl *)
     
-    (* method name, arguments, return name, body *)
-    | methodDecl: string -> list string -> string -> stmt -> topLevelDecl
+    (* method name, arguments, optional return name, body *)
+    | methodDecl: string -> list string -> option string -> stmt -> topLevelDecl
     | readyDecl: stmt -> topLevelDecl
     | processDecl: stmt -> topLevelDecl 
     (* | constructorDecl *)
@@ -62,7 +62,7 @@ Inductive topLevelDecl :=
 
 Inductive assignment :=
  | varAss (n: nat)
- | methodAss (args: list string) (ret: string) (body: stmt)
+ | methodAss (args: list string) (ret: option string) (body: stmt)
  | waitAss (pn: nat) (body: stmt)
 .
 
@@ -176,7 +176,11 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
                     ) 
                     (combine args name_args) ($0)) 
                 found_body vg2 vlmid
-                /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
+                /\ match ret, found_ret with
+                    | Some s_ret, Some s_found_ret =>  (exists r, interp (Var s_found_ret) vlmid = r /\ vl2 = vl1 $+ (s_ret, varAss r))
+                    | Some _, None => False
+                    | None, _ => vl2 = vlmid
+                    end
             | _ => False
             end
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
@@ -184,7 +188,7 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
         Check if a function is waiting for the signal. If so, call it after the callback but before resuming execution*)
         | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (vg1 $+ (sig_name, varAss 1)) /\
             match opt_callback with
-                | Some (f, n) => runStmt fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
+                | Some (f, n) => runStmt fuel' vgmid vl1 (assignCallMethodStmt None f args) vgmid' vlmid'
                 | None => vgmid = vgmid' /\ vl1 = vlmid'
                 end /\ match vgmid' $? ("waiting_" ++ sig_name)%string with
                     | Some (waitAss _ b) => runStmt fuel' vgmid' vlmid' b vg2 vl2
@@ -241,16 +245,20 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
                         ) 
                         (combine args name_args) ($0)) 
                     found_body vg2 vlmid
-                    /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
+                    /\ match ret, found_ret with
+                        | Some s_ret, Some s_found_ret =>  (exists r, interp (Var s_found_ret) vlmid = r /\ vl2 = vl1 $+ (s_ret, varAss r))
+                        | Some _, None => False
+                        | None, _ => vl2 = vlmid
+                        end    
                 | _ => False
                 end
             | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     (*Context switch if n = 2*)
                     | Some (f, n) =>  match n with
-                        | 2 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 2)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt "garb" f args) vgreturn vldump
+                        | 2 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 2)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt None f args) vgreturn vldump
                         /\ vgmid' = (((fst vgreturn) $+ (("current")%string, varAss 1)), snd vgreturn) /\ vl1 = vlmid'
-                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
+                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt None f args) vgmid' vlmid'
                         end
                     | None => vgmid = vgmid' /\ vl1 = vlmid'
                     end /\ match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
@@ -292,15 +300,19 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
                         ) 
                         (combine args name_args) ($0)) 
                     found_body vg2 vlmid
-                    /\ (exists r, interp (Var found_ret) vlmid = r /\ vl2 = vl1 $+ (ret, varAss r))
+                    /\ match ret, found_ret with
+                        | Some s_ret, Some s_found_ret =>  (exists r, interp (Var s_found_ret) vlmid = r /\ vl2 = vl1 $+ (s_ret, varAss r))
+                        | Some _, None => False
+                        | None, _ => vl2 = vlmid
+                        end
                 | _ => False
                 end
             | emitSignalStmt sig_name opt_callback args => exists vgmid vgmid' vlmid', vgmid = (((fst vg1) $+ (sig_name, varAss 1)), ((snd vg1) $+ (sig_name, varAss 1))) /\
                 match opt_callback with
                     | Some (f, n) =>  match n with
-                        | 1 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 1)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt "garb" f args) vgreturn vldump
+                        | 1 => exists vgswitch vgreturn vldump, vgswitch = (((fst vgmid) $+ (("current")%string, varAss 1)), snd vgmid) /\ runStmtDual fuel' vgswitch ($0) (assignCallMethodStmt None f args) vgreturn vldump
                         /\ vgmid' = (((fst vgreturn) $+ (("current")%string, varAss 2)), snd vgreturn)
-                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt "garb" f args) vgmid' vlmid'
+                        | _ => runStmtDual fuel' vgmid vl1 (assignCallMethodStmt None f args) vgmid' vlmid'
                         end
                     | None => vgmid = vgmid' /\ vl1 = vlmid'
                     end /\ match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
