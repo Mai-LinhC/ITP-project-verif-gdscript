@@ -73,7 +73,7 @@ Notation "'topVar' x = e":= (classVarDecl x e) (at level 75).
 Notation "'ready():' b" := (readyDecl b)(at level 75). 
 Notation "'process():' b" := (processDecl b)(at level 75).
 
-Notation "'var' x = e":= (varDeclStmt x e) (at level 75).
+Notation "'var' x := e":= (varDeclStmt x e) (at level 75).
 Notation "'when' e 'then' then_ 'else' else_ 'done'" := (ifStmt e then_ else_)(at level 75, e at level 0).
 Notation "'while' e 'loop' body 'done'" := (whileStmt e body)(at level 75).
 Notation "x <- e" := (assignmentStmt x e) (at level 75).
