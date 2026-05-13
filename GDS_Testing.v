@@ -156,6 +156,27 @@ Proof.
     rewrite Hlooka in H; discriminate.
 Qed.
 
+(* faire a la mano pour pas avoir le pb de crash (mais si le assign call change il faut changer ici aussi) *)
+Lemma runStmt_assignCallMethod_inv :
+  forall n v1 v2 ret method args v3 v4,
+  runStmt n v1 v2 (assignCallMethodStmt ret method args) v3 v4 ->
+  n > 0 ->
+  exists method_body method_args method_ret vlmid,
+    v1 $? method = Some (methodAss method_args method_ret method_body) /\
+    runStmt (n-1) v1 (fold_left 
+                (fun (acc: valuation) (arg_argname: expr * string) => 
+                    (acc $+ ((snd arg_argname), varAss (interp2 (fst arg_argname) v1 v2)))
+                )  (combine args method_args) $0) 
+            method_body v3 vlmid /\
+    match ret, method_ret with
+    | Some s_ret, Some s_found => 
+        exists r, interp (Var s_found) vlmid = r /\ v4 = v2 $+ (s_ret, varAss r)
+    | Some _, None => False
+    | None, _ => v4 = vlmid
+    end.
+Proof.
+Admitted.
+
 Theorem globalExe1 :
     forall v2, (run 10 $0 
     ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;; topVar "dump" := Const 0) ;;;
@@ -173,6 +194,30 @@ Proof.
     destruct H4, H3; simpl in H1, H3, H5, H4. subst.
     clear H9.
     inversion H2; subst; clear H2.
+    eapply runStmt_assignCallMethod_inv in H0.
+    destruct H0 as [body [args [ret r]]].
+    destruct r as [vlmid [look [matchh r]]].
+    rewrite lookup_add_eq in look.
+    injection look as l returnv bdy.
+    subst.
+    simpl in matchh.
+    destruct matchh.
+    destruct H0.
+    inversion_clear H1.
+    destruct r as [y [i ii]].
+    simpl in i; subst.
+    destruct H2.
+    destruct H2.
+    rewrite lookup_empty in H1.
+    rewrite lookup_add_ne in H1 by discriminate.
+    rewrite lookup_add_ne in H1 by discriminate.
+    rewrite lookup_add_ne in H1 by discriminate.
+    rewrite lookup_add_eq in H1 by reflexivity.
+    simpl in H1.
+    subst x.
+    subst vlmid v2.
+    all: try reflexivity.
+
 Admitted.
 
 Theorem globalExe2 :
@@ -190,6 +235,7 @@ Proof.
     inversion_clear H0; inversion_clear H1; repeat special_match2.
     inversion_clear H0; inversion_clear H1; destruct H2, H0; simpl in H1, H0.
     subst.
+    unfold runStmt in H.
 Admitted.
 
 Theorem runProcess :
