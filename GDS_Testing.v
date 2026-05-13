@@ -164,6 +164,15 @@ Theorem globalExe1 :
     v2) 
     ->(v2 $? "ret" = Some (varAss 10)).
 Proof.
+    intros.
+    inversion H; repeat special_match2.
+    inversion_clear H0; inversion_clear H1; repeat special_match2.
+    inversion_clear H1; repeat special_match2.
+    inversion_clear H1; repeat special_match2.
+    inversion_clear H1; inversion_clear H3; inversion H4; destruct H1, H5, H4.
+    destruct H4, H3; simpl in H1, H3, H5, H4. subst.
+    clear H9.
+    inversion H2; subst; clear H2.
 Admitted.
 
 Theorem globalExe2 :
@@ -172,9 +181,15 @@ Theorem globalExe2 :
     methodDecl "plusOne" nil None (var "a" := Const 9 ;; "a" <- Var "a" + Const 1)) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)
     v2) 
-    ->((v2 $? "ret" = Some (varAss 10))  /\ (v2 $? "a" = Some (varAss 3)))
-.
+    ->((v2 $? "ret" = Some (varAss 10))  /\ (v2 $? "a" = Some (varAss 3))).
 Proof.
+    intros.
+    inversion_clear H; repeat special_match2.
+    inversion_clear H; inversion_clear H0; repeat special_match2.
+    inversion_clear H; inversion_clear H0; repeat special_match2.
+    inversion_clear H0; inversion_clear H1; repeat special_match2.
+    inversion_clear H0; inversion_clear H1; destruct H2, H0; simpl in H1, H0.
+    subst.
 Admitted.
 
 Theorem runProcess :
