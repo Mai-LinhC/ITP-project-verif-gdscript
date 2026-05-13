@@ -68,7 +68,7 @@ Inductive assignment :=
 
 Definition valuation := fmap string assignment.
 
-Notation "'topVar' x = e":= (classVarDecl x e) (at level 75).
+Notation "'topVar' x := e":= (classVarDecl x e) (at level 75).
 (* Notation "'const' x = e" := (constDecl x e)(at level 75). *)
 Notation "'ready():' b" := (readyDecl b)(at level 75). 
 Notation "'process():' b" := (processDecl b)(at level 75).

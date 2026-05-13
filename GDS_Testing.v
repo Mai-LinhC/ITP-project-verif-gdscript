@@ -1,6 +1,7 @@
 Require Import Lab07Map.
 Require Import GDS_Language. 
 From Stdlib Require Import String.
+Require Import List.
 Open Scope string_scope.
 Open Scope expr.
 
@@ -10,6 +11,15 @@ Ltac special_match := match goal with
     | [ |- _ /\ _ ] => split
     | [ H : _ \/ _ |- _ ] => destruct H
     | [H: context[interp2 _ _ _] |- _ ] => destruct H
+    | [ |- _ ] => subst; eauto; try discriminate
+  end.
+
+  Ltac special_match2 := match goal with
+    | [ H: exists _,  _ |-  _ ] => destruct H
+    | [ H: _ /\ _ |- _ ] => destruct H
+    | [ |- _ /\ _ ] => split
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [H: context[interp2 _ _ _] |- _ ] => simpl in H
     | [ |- _ ] => subst; eauto; try discriminate
   end.
 
@@ -144,6 +154,60 @@ Proof.
         rewrite Hlooka in h2; congruence.
     - simpl in H.
     rewrite Hlooka in H; discriminate.
-
-
 Qed.
+
+Theorem globalExe1 :
+    forall v2, (run 10 $0 
+    ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;; topVar "dump" := Const 0) ;;;
+    methodDecl "plusOne" nil (Some "dump")  ("dump" <- Var "a" + Const 1)) ;;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil))
+    v2) 
+    ->(v2 $? "ret" = Some (varAss 10)).
+Proof.
+Admitted.
+
+Theorem globalExe2 :
+    forall v2, (run 10 $0 
+    (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
+    methodDecl "plusOne" nil None (var "a" := Const 9 ;; "a" <- Var "a" + Const 1)) ;;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)
+    v2) 
+    ->((v2 $? "ret" = Some (varAss 10))  /\ (v2 $? "a" = Some (varAss 3)))
+.
+Proof.
+Admitted.
+
+Theorem runProcess :
+    forall v2, (run 15 $0 (
+       (topVar "ret" := Const 0 ;;; processDecl(
+        ((var "a" := Const 10 ;; "ret" <- Var "a") ;; skip)) ;;; 
+        EndDecl) 
+    ) v2) 
+    ->(v2 $? "ret" = Some (varAss 10)).
+Proof.
+Admitted.
+
+(* Warning: la preuve suivante risque d’être particulièrement longue *)
+Theorem runSignal :
+     forall v2, run 15 $0 (  (* valeur de fuel choisie au pif, potentiellement ajuster pour que le théorème soit correct *)
+        topVar "a" := Const 0 ;;; topVar "ret" := Const 0 ;;;
+        readyDecl("a" <- Const 1) ;;;
+        processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 3)
+        then (emitSignalStmt "sig" None nil)
+        else (awaitStmt "sig" ;; "ret" <- Const 10)
+        done)
+     ) 
+     v2 -> (v2 $? "ret" = Some (varAss 10)).
+Proof.
+Admitted.
+
+(* NB: Si trop dur à prouver, on peut retirer l’argument “a” de callback_fun, mais c’est moins probant comme exemple. *)
+Theorem runSignalCallback :
+    forall v2, run 10 $0 (
+        (topVar "ret" := Const 0 ;;; methodDecl "callback" ("a"::"b"::nil) None ("ret" <- Var "b")) ;;;
+        readyDecl(emitSignalStmt "sig" (Some ("callback", 0)) (Const 5 :: Const 10 :: nil))
+    ) v2 
+    -> (v2 $? "ret" = Some (varAss 10)).
+Proof.
+Admitted.
