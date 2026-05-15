@@ -177,7 +177,12 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
                     (combine args name_args) ($0)) 
                 found_body vg2 vlmid
                 /\ match ret, found_ret with
-                    | Some s_ret, Some s_found_ret =>  (exists r, interp (Var s_found_ret) vlmid = r /\ vl2 = vl1 $+ (s_ret, varAss r))
+                    | Some s_ret, Some s_found_ret => 
+                        (exists r, interp (Var s_found_ret) vlmid = r 
+                        /\ 
+                        ((runStmt fuel' vg1 vl1 (assignmentStmt s_ret (Const r)) vg2 vl2) (* if already defined (locally or globally), reassign to new value r *)
+                        \/
+                        vl1 $? s_ret = None /\ vg1 $? s_ret = None /\ (vl2 = vl1 $+ (s_ret, varAss r)))) (* otw, new val *)
                     | Some _, None => False
                     | None, _ => vl2 = vlmid
                     end
