@@ -174,18 +174,18 @@ Lemma runStmt_assignCallMethod_inv :
         /\ 
         ((runStmt (n-1) vgmid v2 (assignmentStmt s_ret (Const r)) v3 v4) (* if already defined (locally or globally), reassign to new value r *)
         \/
-        v2 $? s_ret = None /\ vgmid $? s_ret = None /\ (v4 = v2 $+ (s_ret, varAss r)
+        v2 $? s_ret = None /\ vgmid $? s_ret = None /\ (v4 = v2 $+ (s_ret, varAss r) /\ vgmid = v3
         )))
     | Some _, None => False
-    | None, _ => v4 = vlmid
+    | None, _ => v4 = vlmid /\ v3 = vgmid
     end.
 Proof.
 Admitted.
 
 Theorem globalExe1 :
     forall v2, (run 10 $0 
-    ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;; topVar "dump" := Const 0) ;;;
-    methodDecl "plusOne" nil (Some "dump")  ("dump" <- Var "a" + Const 1)) ;;;
+    (((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
+    methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil))
     v2) 
     ->(v2 $? "ret" = Some (varAss 10)).
@@ -195,7 +195,39 @@ Proof.
     inversion_clear H0; inversion_clear H1; repeat special_match2.
     inversion_clear H1; repeat special_match2.
     inversion_clear H1; repeat special_match2.
-    inversion_clear H1; inversion_clear H3; inversion H4; destruct H1, H5, H4.
+    inversion_clear H3; destruct H1; subst x2 x0.
+    inversion H2; subst x; clear H2.
+
+    eapply runStmt_assignCallMethod_inv in H0.
+    destruct H0 as [body [args [ret r]]].
+    destruct r as [vlmid [vgmid[look [matchh r]]]].
+
+    rewrite lookup_add_eq in look by reflexivity.
+    injection look as <- <- <-.
+    simpl in matchh.
+    destruct matchh as [n[matchh mvlmid]].
+    subst vlmid.
+    rewrite lookup_empty in matchh.
+    rewrite lookup_add_ne in matchh by discriminate.
+    rewrite lookup_add_ne in matchh by discriminate.
+    rewrite lookup_add_eq in matchh by reflexivity.
+    simpl in matchh; subst n.
+    destruct r as [y [i ii]].
+    simpl in i.
+    rewrite lookup_add_eq in i by reflexivity.
+    subst y.
+    destruct ii as [H1 | [iret [ivgmid ix1]]].
+    simpl in H1. destruct H1 as [Hret | Hvgmid].
+        + destruct Hret as [Hret [n [Hn [Hx1 Hvgmid]]]].
+        rewrite lookup_empty in Hret. contradiction.
+        +destruct Hvgmid as [Hvgmid [Hret [n [Hn [Hv2 Hx1]]]]]. subst n. 
+        rewrite Hv2.
+        rewrite lookup_add_eq by reflexivity; reflexivity.
+        + destruct ix1 as [ix1 Hv2]. 
+
+    simpl in r.
+    destruct r as [y [i ii]].
+
     destruct H4, H3; simpl in H1, H3, H5, H4. subst.
     clear H9.
     (* inversion H2; subst; clear H2. *)
@@ -276,7 +308,7 @@ Admitted.
 Theorem globalExe2 :
     forall v2, (run 10 $0 
     (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
-    methodDecl "plusOne" nil None (var "a" := Const 9 ;; "a" <- Var "a" + Const 1)) ;;;
+    methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)
     v2) 
     ->((v2 $? "ret" = Some (varAss 10))  /\ (v2 $? "a" = Some (varAss 3))).

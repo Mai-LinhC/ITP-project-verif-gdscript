@@ -182,10 +182,10 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
                         /\ 
                         ((runStmt fuel' vgmid vl1 (assignmentStmt s_ret (Const r)) vg2 vl2) (* if already defined (locally or globally), reassign to new value r *)
                         \/
-                        vl1 $? s_ret = None /\ vgmid $? s_ret = None /\ (vl2 = vl1 $+ (s_ret, varAss r) (* otw, new val *)
+                        vl1 $? s_ret = None /\ vgmid $? s_ret = None /\ (vl2 = vl1 $+ (s_ret, varAss r) /\ vgmid = vg2 (* otw, new val *)
                         )))
                     | Some _, None => False
-                    | None, _ => vl2 = vlmid
+                    | None, _ => vl2 = vlmid /\ vg2 = vgmid
                     end
             | _ => False
             end
