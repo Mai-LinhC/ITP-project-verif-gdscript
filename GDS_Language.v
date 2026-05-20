@@ -166,8 +166,8 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
             | _ => exists vgmid vlmid, runStmt fuel' vg1 vl1 s1 vgmid vlmid /\ runStmt fuel' vgmid vlmid s2 vg2 vl2
             end
         | assignCallMethodStmt ret method_name args =>
-            match vg1 $? method_name with 
-            | Some (methodAss name_args found_ret found_body) => 
+            exists name_args found_ret found_body, vg1 $? method_name = 
+            Some (methodAss name_args found_ret found_body) /\
                 exists vlmid vgmid,
                 runStmt fuel' vg1 
                 (fold_left 
@@ -187,8 +187,6 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
                     | Some _, None => False
                     | None, _ => vl2 = vlmid /\ vg2 = vgmid
                     end
-            | _ => False
-            end
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
         If None, do nothing. In both cases, set the signal to true in valuation to show it has been emitted.
         Check if a function is waiting for the signal. If so, call it after the callback but before resuming execution*)
