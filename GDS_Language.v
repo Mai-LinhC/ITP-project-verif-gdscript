@@ -148,7 +148,7 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
     | S fuel' => 
         match st with
         (* check what we're gonna write with interp2 and assign local var *)
-        | varDeclStmt s e => exists n, n = interp2 e vg1 vl1  /\ vl2 = (vl1 $+ (s, varAss n))
+        | varDeclStmt s e => exists n, n = interp2 e vg1 vl1  /\ vl2 = (vl1 $+ (s, varAss n)) /\ vg2 = vg1
         | ifStmt e s1 s2 => (exists r, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s1 vg2 vl2) \/
             (0 = interp2 e vg1 vl1 /\ runStmt fuel' vg1 vl1 s2 vg2 vl2)
         | whileStmt e s => (exists r vgmid vlmid, r = interp2 e vg1 vl1 /\ r <> 0 /\ runStmt fuel' vg1 vl1 s vgmid vlmid

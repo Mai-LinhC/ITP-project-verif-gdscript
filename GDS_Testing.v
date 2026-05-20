@@ -20,6 +20,24 @@ Ltac special_match := match goal with
     | [ |- _ /\ _ ] => split
     | [ H : _ \/ _ |- _ ] => destruct H
     | [H: context[interp2 _ _ _] |- _ ] => simpl in H
+    | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
+    | [ |- _ ] => subst; eauto; try discriminate
+  end.
+
+  Ltac program_match := match goal with 
+    | [ H: exists _,  _ |-  _ ] => destruct H
+    | [ H: _ /\ _ |- _ ] => destruct H
+    | [ |- _ /\ _ ] => split
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [H: context[interp2 _ _ _] |- _ ] => simpl in H
+    | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
+    (* | [H: runStmt _ _ _ (sequence _ _) _ _ |- _] => inversion_clear H
+    | [H: runStmt _ (varDeclStmt _ (Const _)) _ |- _] => inversion_clear H *)
+    | [H: run _ _ (SequenceDecl _ _) _ |- _] => inversion_clear H
+    | [H: run _ _ (classVarDecl _ (Const _)) _ |- _] => inversion_clear H
+    | [H: run _ _ (readyDecl _ ) _ |- _] => inversion_clear H
+    | [H: run _ _ (methodDecl _ _ _ _) _ |- _] => inversion H; subst; clear H
+    | [H: run _ _ EndDecl _ |- _] => inversion H; subst; clear H
     | [ |- _ ] => subst; eauto; try discriminate
   end.
 
