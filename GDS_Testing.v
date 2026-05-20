@@ -55,24 +55,26 @@ Proof.
     clear H1; clear H; inversion H0; repeat special_match.
     clear H0; inversion H; repeat special_match.
     clear H; inversion H0.
-    destruct H; simpl in H; subst.
+    destruct H as [? [? ?]]; simpl in H; subst.
+    clear H0.
     inversion H2.
-    destruct H; simpl in H; subst.
+    destruct H as [? [? ?]]; simpl in H; subst. clear H2.
     inversion H1.
-    destruct H; simpl in H.
+    destruct H as [? [? ?]]; simpl in H.
     assert ("a" <> "b") by congruence.
-    epose proof (lookup_add_ne _ _ H4) as Hlook.
+    epose proof (lookup_add_ne _ _ H3) as Hlook.
+    
     rewrite Hlook in H.
     assert ("a" = "a") by reflexivity.
-    epose proof (lookup_add_eq _ _ H5) as Hlookne.
+    epose proof (lookup_add_eq _ _ H4) as Hlookne.
     rewrite Hlookne in H.
     assert ("b" = "b") by reflexivity.
-    epose proof (lookup_add_eq _ _ H6) as Hlookeq.
+    epose proof (lookup_add_eq _ _ H5) as Hlookeq.
     rewrite Hlookeq in H.
     simpl in H; subst.
     assert ("ret" = "ret") by reflexivity.
     epose proof (lookup_add_eq _ _ H).
-    apply H3.
+    apply H0.
 Qed.
 
 Theorem runIf :
@@ -94,16 +96,16 @@ Proof.
     -repeat special_match.
     clear H3; inversion H0; inversion H4.
     clear H0 H4.
-    destruct H2, H3; simpl in H2, H3; subst.
+    destruct H2 as [? [? ?]], H3 as [? [? ?]]; simpl in H2, H3; subst.
     inversion H1; subst.
-    inversion H6; destruct H0; simpl in H0; subst.
+    inversion H6; destruct H0 as [? [? ?]]; simpl in H0; subst.
     assert ("ret" = "ret") by reflexivity.
     epose proof (lookup_add_eq _ _ H0).
     apply H2.
     
-    -clear H3; inversion H0; inversion H4.
+    - clear H3; inversion H0; inversion H4.
     clear H0 H4.
-    destruct H3, H5; simpl in H3, H5; subst.
+    destruct H3 as [? [? ?]], H5 as [? [? ?]]; simpl in H3, H5; subst.
     destruct H2; simpl in H2.
     simpl in H0.
     assert ("a" <> "b") by congruence.
@@ -129,10 +131,11 @@ Proof.
     inversion_clear H; repeat special_match.
     inversion_clear H; repeat special_match.
     inversion_clear H; repeat special_match.
-    inversion_clear H. destruct H3 ; simpl in H; subst.
+    inversion_clear H. destruct H3 as [? [? ?]]; simpl in H; subst.
     assert (ha: "a" = "a") by reflexivity; 
     epose proof (lookup_add_eq _ _ ha) as Hlooka.
     inversion_clear H2; [repeat special_match | do 2 special_match].
+    
     - (* h3 = assign -> (*Check local val, if exists, reassign, else check global, if exists reassign, else crash (prop is false)*) *)
     inversion H3. 
         + (* Check local val, if exists, reassign, *)
@@ -140,7 +143,7 @@ Proof.
         simpl in h3.
         rewrite Hlooka in h3.
         subst.
-        clear H3 H2 x4 h1.
+        clear H3 H2 x3 h1.
         inversion H4. 
         -- destruct H as [inta [vgmid [vlmid [h1 [h2 [h3 h4]]]]]].
         inversion h3. 
@@ -156,7 +159,7 @@ Proof.
             * destruct H as [h [h1 h2]].
             subst.
             inversion H1. 
-            destruct H as [h1 h2].
+            destruct H as [h1 [h2 h3]].
             inversion H0.
             subst. simpl.
             rewrite (lookup_add_eq _ _ ha).
@@ -171,157 +174,52 @@ Proof.
         destruct H as [h1 [h2 h3]].
         rewrite Hlooka in h2; congruence.
     - simpl in H.
-    rewrite Hlooka in H; discriminate.
+    rewrite Hlooka in H; discriminate. 
 Qed.
-
-(* faire a la mano pour pas avoir le pb de crash (mais si le assign call change il faut changer ici aussi) *)
-Lemma runStmt_assignCallMethod_inv :
-  forall n v1 v2 ret method args v3 v4,
-  runStmt n v1 v2 (assignCallMethodStmt ret method args) v3 v4 ->
-  n > 0 ->
-  exists method_body method_args method_ret vlmid vgmid,
-    v1 $? method = Some (methodAss method_args method_ret method_body) /\
-    runStmt (n-1) v1 (fold_left 
-                (fun (acc: valuation) (arg_argname: expr * string) => 
-                    (acc $+ ((snd arg_argname), varAss (interp2 (fst arg_argname) v1 v2)))
-                )  (combine args method_args) $0) 
-            method_body vgmid vlmid /\
-    match ret, method_ret with
-    | Some s_ret, Some s_found => 
-        (exists r, interp (Var s_found) vlmid = r 
-        /\ 
-        ((runStmt (n-1) vgmid v2 (assignmentStmt s_ret (Const r)) v3 v4) (* if already defined (locally or globally), reassign to new value r *)
-        \/
-        v2 $? s_ret = None /\ vgmid $? s_ret = None /\ (v4 = v2 $+ (s_ret, varAss r) /\ vgmid = v3
-        )))
-    | Some _, None => False
-    | None, _ => v4 = vlmid /\ v3 = vgmid
-    end.
-Proof.
-Admitted.
 
 Theorem globalExe1 :
     forall v2, (run 10 $0 
-    (((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
+    ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
-    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil))
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)
     v2) 
     ->(v2 $? "ret" = Some (varAss 10)).
 Proof.
     intros.
-    inversion H; repeat special_match2.
-    inversion_clear H0; inversion_clear H1; repeat special_match2.
-    inversion_clear H1; repeat special_match2.
-    inversion_clear H1; repeat special_match2.
-    inversion_clear H3; destruct H1; subst x2 x0.
-    inversion H2; subst x; clear H2.
-
-    eapply runStmt_assignCallMethod_inv in H0.
-    destruct H0 as [body [args [ret r]]].
-    destruct r as [vlmid [vgmid[look [matchh r]]]].
-
-    rewrite lookup_add_eq in look by reflexivity.
-    injection look as <- <- <-.
-    simpl in matchh.
-    destruct matchh as [n[matchh mvlmid]].
-    subst vlmid.
-    rewrite lookup_empty in matchh.
-    rewrite lookup_add_ne in matchh by discriminate.
-    rewrite lookup_add_ne in matchh by discriminate.
-    rewrite lookup_add_eq in matchh by reflexivity.
-    simpl in matchh; subst n.
-    destruct r as [y [i ii]].
-    simpl in i.
-    rewrite lookup_add_eq in i by reflexivity.
-    subst y.
-    destruct ii as [H1 | [iret [ivgmid ix1]]].
-    simpl in H1. destruct H1 as [Hret | Hvgmid].
-        + destruct Hret as [Hret [n [Hn [Hx1 Hvgmid]]]].
-        rewrite lookup_empty in Hret. contradiction.
-        +destruct Hvgmid as [Hvgmid [Hret [n [Hn [Hv2 Hx1]]]]]. subst n. 
-        rewrite Hv2.
-        rewrite lookup_add_eq by reflexivity; reflexivity.
-        + destruct ix1 as [ix1 Hv2]. 
-
-    simpl in r.
-    destruct r as [y [i ii]].
-
-    destruct H4, H3; simpl in H1, H3, H5, H4. subst.
-    clear H9.
-    (* inversion H2; subst; clear H2. *)
-    eapply runStmt_assignCallMethod_inv in H0.
-    destruct H0 as [body [args [ret r]]].
-    destruct r as [vlmid [vgmid[look [matchh r]]]].
-
-    inversion H2; subst; clear H2.
-
-    rewrite lookup_add_eq in look by reflexivity.
-    injection look as <- <- <-.
-    simpl in matchh.
-    simpl in r.
-    destruct r as [y [i ii]].
-
-    destruct matchh as [Hleft | Hright].
-    -destruct Hleft as [H_dump_ne [n [H1 [Hvlmid Hv2]]]].
-    rewrite lookup_empty in H1.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_eq in H1 by reflexivity.
-    simpl in H1; subst n vlmid.
-    rewrite lookup_add_eq in i by reflexivity.
-    subst y.
-    destruct ii as [[i1 | i2] | i3].
-        +exfalso. apply i1. apply lookup_empty.
-        +destruct i2 as [igmid [ iret [ nret [inret [iv2 ix1]]]]].
-        subst nret v2.
-        eapply lookup_add_eq; reflexivity.
-        +
-
-    -
-    
-    -destruct Hright as [Hvglobal_dump [H0_dump [n [Hn [Hvgmid Hvlmid]]]]].
-    subst vgmid vlmid.
-    rewrite lookup_empty in i. subst y.
-    rewrite lookup_add_ne in Hn by discriminate.
-    rewrite lookup_add_ne in Hn by discriminate.
-    rewrite lookup_add_ne in Hn by discriminate.
-    rewrite lookup_add_eq in Hn by reflexivity.
-    rewrite lookup_empty in Hn.
-    simpl in Hn.
-    subst n.
-    destruct ii as [[i1 | i2] | i3].
-        +exfalso; apply i1. rewrite lookup_empty. reflexivity.
-        +destruct i2 as [Hvgmid_ret [H0_ret [m [Hm [Hx1 Hv2]]]]].
-        subst m v2.
-        admit.
-        +destruct i3 as [H0_ret [Hvgmid_ret [Hx1 Hv2]]].
-        subst v2. rewrite lookup_add_eq by reflexivity.
-
-
-    injection look as l returnv bdy.
+    do 20 program_match.
+    inversion H6. 
+    do 6 program_match.
+    rewrite lookup_add_eq in H by reflexivity.
+    injection H as <- <- <-.
+    inversion H0. destruct H. simpl in H, H2.
+    rewrite lookup_empty in H.
+    rewrite lookup_add_ne in H by discriminate.
+    rewrite lookup_add_ne in H by discriminate.
+    rewrite lookup_add_eq in H by reflexivity.
+    destruct H2.
     subst.
-    simpl in matchh.
-    destruct matchh.
-    destruct H0.
-    inversion_clear H1.
-    destruct r as [y [i ii]].
-    simpl in i; subst.
-    destruct H2.
-    destruct H2.
-    rewrite lookup_empty in H1.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_ne in H1 by discriminate.
-    rewrite lookup_add_eq in H1 by reflexivity.
+
+    do 10 program_match.
+    -  
     simpl in H1.
-    subst x.
-    subst vlmid v2.
-    
-    all: try reflexivity.
+    destruct H1.
+    +
+    destruct H.
+    rewrite lookup_empty in H. contradiction.
+    +
+    clear H2 H3.
+    do 10 program_match.
+    rewrite lookup_add_eq by reflexivity.
+    rewrite lookup_add_eq by reflexivity.
+    reflexivity.
+    -
+    clear H5 H7.
+    rewrite lookup_add_ne in H2 by discriminate.
+    rewrite lookup_add_eq in H2 by reflexivity.
+    discriminate. 
 
-
-Admitted.
+    Show Proof.
+Qed.
 
 Theorem globalExe2 :
     forall v2, (run 10 $0 
