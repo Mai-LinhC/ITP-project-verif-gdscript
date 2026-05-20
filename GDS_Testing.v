@@ -23,6 +23,23 @@ Ltac special_match := match goal with
     | [ |- _ ] => subst; eauto; try discriminate
   end.
 
+  Ltac program_match := match goal with 
+    | [ H: exists _,  _ |-  _ ] => destruct H
+    | [ H: _ /\ _ |- _ ] => destruct H
+    | [ |- _ /\ _ ] => split
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [H: context[interp2 _ _ _] |- _ ] => simpl in H
+    | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
+    (* | [H: runStmt _ _ _ (sequence _ _) _ _ |- _] => inversion_clear H
+    | [H: runStmt _ (varDeclStmt _ (Const _)) _ |- _] => inversion_clear H *)
+    | [H: run _ _ (SequenceDecl _ _) _ |- _] => inversion_clear H
+    | [H: run _ _ (classVarDecl _ (Const _)) _ |- _] => inversion_clear H
+    | [H: run _ _ (readyDecl _ ) _ |- _] => inversion_clear H
+    | [H: run _ _ (methodDecl _ _ _ _) _ |- _] => inversion H; subst; clear H
+    | [H: run _ _ EndDecl _ |- _] => inversion H; subst; clear H
+    | [ |- _ ] => subst; eauto; try discriminate
+  end.
+
 Theorem runVar :    
     forall v2, 
     (runStmt 10 $0 $0 
@@ -186,18 +203,32 @@ Theorem globalExe1 :
     forall v2, (run 10 $0 
     (((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
-    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil))
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil);;; EndDecl)
     v2) 
     ->(v2 $? "ret" = Some (varAss 10)).
 Proof.
     intros.
-    inversion H; repeat special_match2.
+    repeat program_match.
+    inversion H6.
+    do 5 program_match.
+
+(*     
+    inversion H2; subst; clear H2.
+    inversion H2.
+    inversion_clear H.
+    inversion_clear H.
+    destruct H0.
+    inversion_clear H0.
+    subst.
+    repeat program_match.
+    repeat program_match.
     inversion_clear H0; inversion_clear H1; repeat special_match2.
     inversion_clear H1; repeat special_match2.
     inversion_clear H1; repeat special_match2.
     inversion_clear H3; destruct H1; subst x2 x0.
     inversion H2; subst x; clear H2.
-
+    inversion_clear H0; repeat special_match2.
+    repeat special_match2.
     eapply runStmt_assignCallMethod_inv in H0.
     destruct H0 as [body [args [ret r]]].
     destruct r as [vlmid [vgmid[look [matchh r]]]].
@@ -300,7 +331,7 @@ Proof.
     subst x.
     subst vlmid v2.
     
-    all: try reflexivity.
+    all: try reflexivity. *)
 
 
 Admitted.
