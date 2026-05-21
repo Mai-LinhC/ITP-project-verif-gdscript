@@ -38,7 +38,8 @@ Ltac special_match := match goal with
     | [H: run _ _ (classVarDecl _ (Const _)) _ |- _] => inversion H; subst; clear H
     | [H: run _ _ (readyDecl _ ) _ |- _] => inversion H; subst; clear H
     | [H: run _ _ (methodDecl _ _ _ _) _ |- _] => inversion H; subst; clear H
-    | [H: run _ _ EndDecl _ |- _] => inversion H; subst; clear H
+    | [H: run _ _ EndDecl _ |- _] => destruct H
+    | [H: ?a = ?a |- _ ] => clear H
     | [ |- _ ] => subst; eauto; try discriminate
   end.
 
@@ -191,6 +192,7 @@ Theorem globalExe1 :
 Proof.
     intros.
     do 20 program_match.
+
     (* simpl in H4. *)
 
     inversion H4. 
