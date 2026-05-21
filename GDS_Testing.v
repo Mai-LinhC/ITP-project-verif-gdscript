@@ -37,7 +37,8 @@ Ltac special_match := match goal with
     | [H: run _ _ (classVarDecl _ (Const _)) _ |- _] => inversion_clear H
     | [H: run _ _ (readyDecl _ ) _ |- _] => inversion_clear H
     | [H: run _ _ (methodDecl _ _ _ _) _ |- _] => inversion H; subst; clear H
-    | [H: run _ _ EndDecl _ |- _] => inversion H; subst; clear H
+    | [H: run _ _ EndDecl _ |- _] => destruct H
+    | [H: ?a = ?a |- _ ] => clear H
     | [ |- _ ] => subst; eauto; try discriminate
   end.
 
@@ -187,7 +188,7 @@ Theorem globalExe1 :
 Proof.
     intros.
     do 20 program_match.
-    inversion H6. 
+    destruct H6.
     do 6 program_match.
     rewrite lookup_add_eq in H by reflexivity.
     injection H as <- <- <-.
@@ -207,13 +208,11 @@ Proof.
     destruct H.
     rewrite lookup_empty in H. contradiction.
     +
-    clear H2 H3.
     do 10 program_match.
     rewrite lookup_add_eq by reflexivity.
     rewrite lookup_add_eq by reflexivity.
     reflexivity.
     -
-    clear H5 H7.
     rewrite lookup_add_ne in H2 by discriminate.
     rewrite lookup_add_eq in H2 by reflexivity.
     discriminate. 
