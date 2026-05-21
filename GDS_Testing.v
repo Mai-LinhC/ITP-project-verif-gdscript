@@ -5,16 +5,7 @@ Require Import List.
 Open Scope string_scope.
 Open Scope expr.
 
-Ltac special_match := match goal with
-    | [ H: exists _,  _ |-  _ ] => destruct H
-    | [ H: _ /\ _ |- _ ] => destruct H
-    | [ |- _ /\ _ ] => split
-    | [ H : _ \/ _ |- _ ] => destruct H
-    | [H: context[interp2 _ _ _] |- _ ] => destruct H
-    | [ |- _ ] => subst; eauto; try discriminate
-  end.
-
-  Ltac special_match2 := match goal with
+  (* Ltac special_match2 := match goal with
     | [ H: exists _,  _ |-  _ ] => destruct H
     | [ H: _ /\ _ |- _ ] => destruct H
     | [ |- _ /\ _ ] => split
@@ -22,8 +13,10 @@ Ltac special_match := match goal with
     | [H: context[interp2 _ _ _] |- _ ] => simpl in H
     | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
     | [ |- _ ] => subst; eauto; try discriminate
-  end.
+  end. *)
 
+
+  (*TODO: Probablement fausse, à changer*)
   Ltac program_match := match goal with 
     | [ H: exists _,  _ |-  _ ] => destruct H
     | [ H: _ /\ _ |- _ ] => destruct H
@@ -31,23 +24,23 @@ Ltac special_match := match goal with
     | [ H : _ \/ _ |- _ ] => destruct H
     | [H: context[interp2 _ _ _] |- _ ] => simpl in H
     | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
-    (* | [H: runStmt _ _ _ (sequence _ _) _ _ |- _] => inversion_clear H
-    | [H: runStmt _ (varDeclStmt _ (Const _)) _ |- _] => inversion_clear H *)
-    | [H: run _ _ (SequenceDecl _ _) _ |- _] => inversion_clear H
-    | [H: run _ _ (classVarDecl _ (Const _)) _ |- _] => inversion_clear H
-    | [H: run _ _ (readyDecl _ ) _ |- _] => inversion_clear H
-    | [H: run _ _ (methodDecl _ _ _ _) _ |- _] => inversion H; subst; clear H
-    | [H: run _ _ EndDecl _ |- _] => destruct H
+    | [H: context[$0 $? _] |- _] => rewrite lookup_empty in H
+    | [H: runP _ _ (SequenceDecl _ _) = _ |- _] => inversion_clear H
+    | [H: runP _ _ (classVarDecl _ (Const _)) = _ |- _] => inversion_clear H
+    | [H: runP _ _ (readyDecl _ ) = _ |- _] => inversion_clear H
+    | [H: runP _ _ (methodDecl _ _ _ _) = _ |- _] => inversion H; subst; clear H
+    | [H: runP _ _ EndDecl = _ |- _] => destruct H
     | [H: ?a = ?a |- _ ] => clear H
-    | [ |- _ ] => subst; eauto; try discriminate
+    | [ |- _ ] => subst; eauto; try discriminate; try contradiction
   end.
 
+  (*La def tu TH me parait ok, à vérifier*)
 Theorem runVar :    
-    forall v2, 
-    (runStmt 10 $0 $0 
+    forall vg2 vl2, 
+    runStmtP 10 $0 $0 
     ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
-    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) $0 v2) 
-    -> (v2 $? "ret" = Some (varAss 5)).
+    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
+    -> (vg2 $? "ret" = Some (varAss 5)).
 Proof.
     intros.
     inversion H.
@@ -78,6 +71,7 @@ Proof.
     apply H0.
 Qed.
 
+(*Pas encore redéfini, si preuve de RunVar réussie, redéfinir de la même manière*)
 Theorem runIf :
     forall v2, 
     (runStmt 10 $0 $0 
@@ -187,7 +181,7 @@ Theorem globalExe1 :
     ->(v2 $? "ret" = Some (varAss 10)).
 Proof.
     intros.
-    do 20 program_match.
+    repeat program_match.
     destruct H6.
     do 6 program_match.
     rewrite lookup_add_eq in H by reflexivity.
@@ -206,7 +200,7 @@ Proof.
     destruct H1.
     +
     destruct H.
-    rewrite lookup_empty in H. contradiction.
+    do 5 program_match.
     +
     do 10 program_match.
     rewrite lookup_add_eq by reflexivity.
@@ -217,7 +211,7 @@ Proof.
     rewrite lookup_add_eq in H2 by reflexivity.
     discriminate. 
 
-    Show Proof.
+    (* Show Proof. *)
 Qed.
 
 Theorem globalExe2 :
