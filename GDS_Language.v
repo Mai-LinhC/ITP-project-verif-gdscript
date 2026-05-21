@@ -226,7 +226,11 @@ Fixpoint runStmtP (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt): opti
         | emitSignalStmt sig_name opt_callback args => let vgmid := (vg1 $+ (sig_name, varAss 1)) in match opt_callback with
             | Some (f, _n) => match runStmtP fuel' vgmid vl1 (assignCallMethodStmt None f args) with
                 | Some (vgmid', vlmid') => match vgmid' $? ("waiting_" ++ sig_name)%string with
-                    | Some (waitAss _ body) => runStmtP fuel' vgmid' vlmid' body
+                    (*Here we do a mini context switch for the local val*)
+                    | Some (waitAss _ body) => match runStmtP fuel' vgmid' $0 body with
+                        | Some (vg2, vl2) => Some (vg2, vlmid')
+                        | None => None
+                        end
                     | _ => Some (vgmid', vlmid')
                     end
                 | None => None
@@ -263,6 +267,95 @@ Fixpoint runP (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
             | None => None
             end
         | EndDecl => Some v
+        end
+    end.
+
+
+Fixpoint runStmtDualP (fuel: nat) (vg : valuation * valuation) (vl: valuation) (st: stmt) : option((valuation * valuation) * valuation) :=
+    match fuel with
+    | O => None
+    | S fuel' => match interp (Var "current") (fst vg) with
+        | Some 1 => match st with
+            | varDeclStmt name e => match interp2 e (fst vg) vl with
+                | Some n => Some (vg, vl $+ (name, varAss n))
+                | None => None
+                end
+            | ifStmt e s1 s2 => match interp2 e (fst vg) vl with
+                | Some 0 => runStmtDualP fuel' vg vl s2
+                | Some _n => runStmtDualP fuel' vg vl s1
+                | None => None
+                end
+            | whileStmt e s => match interp2 e (fst vg) vl with
+                | Some 0 => Some (vg, vl)
+                | Some _n => match runStmtDualP fuel' vg vl s with
+                    | Some (vgmid, vlmid) => runStmtDualP fuel' vgmid vlmid st
+                    | None => None
+                    end
+                | None => None
+                end
+            | assignmentStmt name e => match vl $? name with
+                | Some _ => match interp2 e (fst vg) vl with
+                    | Some n => Some (vg, vl $+ (name, varAss n))
+                    | None => None
+                    end
+                | None => match (fst vg) $? name with 
+                    | Some _ => match interp2 e (fst vg) vl with
+                        | Some n => Some (((fst vg) $+ (name, varAss n), snd vg), vl)
+                        | None => None
+                        end
+                    | None => None
+                    end
+                end
+            | await sig_name => Some (vg, vl)
+            | sequence s1 s2 => match s1 with
+                | awaitStmt sig_name => match interp (Var sig_name) (fst vg) with
+                    (*Here, we add "waiting" to fst and snd of vg, but fst is probably sufficient*)
+                    | Some 0 | None => Some (((fst vg) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2), (snd vg) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), vl)
+                    | Some _n => runStmtDualP fuel' vg vl s2
+                    end
+                | _ => match runStmtDualP fuel' vg vl s1 with
+                    | Some (vgmid, vlmid) => runStmtDualP fuel' vgmid vlmid s2
+                    | None => None
+                    end
+                end
+            | assignCallMethodStmt ret method_name args => None (*TODO*)
+            | emitSignalStmt sig_name opt_callback args => let vgmid := ((fst vg) $+ (sig_name, varAss 1), (snd vg) $+ (sig_name, varAss 1)) in match opt_callback with
+            (*Context switch if n = 2*)
+                | Some (f, 1) => match runStmtDualP fuel' vgmid vl (assignCallMethodStmt None f args) with
+                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                        (*Context switch if 2*)
+                        | Some (waitAss 1 body) => match runStmtDualP fuel' vgmid' $0 body with
+                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                            | None => None
+                            end
+                        (*Double checking: here we want to set current to 2, call body with an empty local val, set current to 1 again and return that new global val with the old local one*)
+                        | Some (waitAss 2 body) => let vgswitch := ((fst vgmid') $+ (("current")%string, varAss 2), snd vgmid') in match runStmtDualP fuel' vgswitch $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vlmid')
+                            | None => None
+                            end
+                        | _ => Some (vgmid', vlmid')
+                        end
+                    | None => None
+                    end
+                | Some (f, 2) => None (*TODO*)   
+                | None => match (fst vgmid) $? ("waiting_" ++ sig_name)%string with
+                    (*Context switch if 2*)
+                    | Some (waitAss 1 body) => match runStmtDualP fuel' vgmid $0 body with
+                        | Some (vg2, vl2) => Some (vg2, vl)
+                        | None => None
+                        end
+                    | Some (waitAss 2 body) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDualP fuel' vgswitch $0 body with
+                        | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vl)
+                        | None => None
+                        end
+                    | _ => Some (vgmid, vl)
+                    end
+                | _ => None
+                end
+            | skip => Some (vg, vl)
+            end
+        | Some 2 => None (*TODO*)
+        | _ => None
         end
     end.
 (* 
@@ -341,7 +434,7 @@ Fixpoint run (fuel: nat) (v1: valuation) (d: topLevelDecl) (v2: valuation): Prop
         end 
     end.
 
-
+*)
 Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (st: stmt) (vg2: valuation * valuation) (vl2: valuation): Prop :=
      match fuel with
     | O => False
@@ -458,7 +551,7 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
         | _ => False
         end
     end.
-
+(*
 (*NOTE / TODO : A chaque fois on écrit les waiting et les emitted dans les deux valuations mais en pratique on lit toujours dans la 1
 Aussi, on peut pas avoir 2 signaux du même nom dans deux programmes différents, mais ça y'a pas le choix sauf en mettant des nombres random*)
 
