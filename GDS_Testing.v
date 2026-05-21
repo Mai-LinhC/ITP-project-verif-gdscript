@@ -95,64 +95,66 @@ Proof.
 Qed.
 
 Theorem globalExe1 :
-    forall vg2, (runP 10 $0 
+    forall vg2, (runP 5 $0 
     ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)) = Some vg2 
     ->(vg2 $? "ret" = Some (varAss 10)).
 Proof.
-    (* intros.
-    simpl in H.
-    inversion H.
-    repeat program_match.
-    destruct H6.
-    do 6 program_match.
-    rewrite lookup_add_eq in H by reflexivity.
-    injection H as <- <- <-.
-    inversion H0. destruct H. simpl in H, H2.
-    rewrite lookup_empty in H.
-    rewrite lookup_add_ne in H by discriminate.
-    rewrite lookup_add_ne in H by discriminate.
-    rewrite lookup_add_eq in H by reflexivity.
-    destruct H2.
-    subst.
-
-    do 10 program_match.
-    -  
-    simpl in H1.
-    destruct H1.
-    +
-    destruct H.
-    do 5 program_match.
-    +
-    do 10 program_match.
-    rewrite lookup_add_eq by reflexivity.
-    rewrite lookup_add_eq by reflexivity.
-    reflexivity.
+    intros.
+    unfold runP in H.
+    destruct (interp (Const 9) $0) eqn:E1; [|discriminate].
+    destruct (interp (Const 0) _) eqn:E2; [|discriminate].
+    destruct (runStmtP _ _ $0 _) eqn:E3; [|discriminate].
+    simpl in E1, E2.
+    injection E1 as <-.
+    injection E2 as <-.
+    destruct p as [vg2' vl2'].
+    injection H as <-.
+    inversion E3.
+    destruct (($0 $+ ("a", varAss 9) $+ ("ret", varAss 0) $+ ("plusOne", methodAss nil (Some "dump") (var "dump" := Var "a" + Const 1))) $? "plusOne") eqn:Elookup.    
     -
-    rewrite lookup_add_ne in H2 by discriminate.
-    rewrite lookup_add_eq in H2 by reflexivity.
-    discriminate. 
+    destruct a eqn:Ha.
+        + discriminate.
+        +
+        assert (args = nil /\ ret = Some "dump" /\ body = (var "dump" := Var "a" + Const 1)) as [Harg [Hret Hbody]].
+        {
+        rewrite lookup_add_eq in Elookup by reflexivity.
+        injection Elookup as [= -> -> ->].
+        repeat split; reflexivity.
+        } subst args ret body.
+        destruct (interp2 (Var "a" + Const 1) _) eqn: E4.
+            *
+            rewrite lookup_add_eq in H0 by reflexivity.
+            rewrite lookup_empty in H0.
+            rewrite lookup_add_ne in H0 by discriminate.
+            rewrite lookup_add_eq in H0 by reflexivity.
+            injection H0 as [= Hvg2 Hvl2].
+            subst vg2'.
+            simpl in E4.
+            rewrite lookup_empty in E4.
+            rewrite lookup_add_ne in E4 by discriminate.
+            rewrite lookup_add_ne in E4 by discriminate.
+            rewrite lookup_add_eq in E4 by reflexivity.
+            simpl in E4.
+            injection E4 as <-.
+            rewrite lookup_add_eq by reflexivity; reflexivity.
 
-    Show Proof. *)
+            *
+            discriminate.
+
+    +discriminate.
+
+    -discriminate.
 Qed.
 
 Theorem globalExe2 :
-    forall v2, (run 10 $0 
+    forall vg2, (runP 10 $0 
     (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
-    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)
-    v2) 
-    ->((v2 $? "ret" = Some (varAss 10))  /\ (v2 $? "a" = Some (varAss 3))).
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)) = Some vg2 
+    ->((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
 Proof.
-    intros.
-    inversion_clear H; repeat special_match2.
-    inversion_clear H; inversion_clear H0; repeat special_match2.
-    inversion_clear H; inversion_clear H0; repeat special_match2.
-    inversion_clear H0; inversion_clear H1; repeat special_match2.
-    inversion_clear H0; inversion_clear H1; destruct H2, H0; simpl in H1, H0.
-    subst.
-    unfold runStmt in H.
 Admitted.
 
 Theorem runProcess :
