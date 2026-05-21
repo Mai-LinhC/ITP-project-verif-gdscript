@@ -319,6 +319,9 @@ Fixpoint runStmtDualP (fuel: nat) (vg : valuation * valuation) (vl: valuation) (
                     end
                 end
             | assignCallMethodStmt ret method_name args => None (*TODO*)
+
+
+
             | emitSignalStmt sig_name opt_callback args => let vgmid := ((fst vg) $+ (sig_name, varAss 1), (snd vg) $+ (sig_name, varAss 1)) in match opt_callback with
             (*Context switch if n = 2*)
                 | Some (f, 1) => match runStmtDualP fuel' vgmid vl (assignCallMethodStmt None f args) with
@@ -337,7 +340,23 @@ Fixpoint runStmtDualP (fuel: nat) (vg : valuation * valuation) (vl: valuation) (
                         end
                     | None => None
                     end
-                | Some (f, 2) => None (*TODO*)   
+                (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
+                | Some (f, 2) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDualP fuel' vgswitch vl (assignCallMethodStmt None f args) with
+                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                        (*Already switched, so stay in current if two or switch back if 1*)
+                        | Some (waitAss 1 body) => let vgswitch' := ((fst vgmid') $+ (("current")%string, varAss 1), snd vgmid') in match runStmtDualP fuel' vgswitch' $0 body with
+                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                            | None => None
+                            end
+                        | Some (waitAss 2 body) => match runStmtDualP fuel' vgmid' $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vlmid')
+                            | None => None
+                            end
+                        (*Switch back*)
+                        | _ => Some (((fst vgmid') $+ (("current")%string, varAss 1) , snd vgmid'), vlmid')
+                        end
+                    | None => None
+                    end
                 | None => match (fst vgmid) $? ("waiting_" ++ sig_name)%string with
                     (*Context switch if 2*)
                     | Some (waitAss 1 body) => match runStmtDualP fuel' vgmid $0 body with
@@ -435,7 +454,7 @@ Fixpoint run (fuel: nat) (v1: valuation) (d: topLevelDecl) (v2: valuation): Prop
     end.
 
 *)
-Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (st: stmt) (vg2: valuation * valuation) (vl2: valuation): Prop :=
+(* Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (st: stmt) (vg2: valuation * valuation) (vl2: valuation): Prop :=
      match fuel with
     | O => False
     | S fuel' => match interp (Var "current") (fst vg1) with
@@ -550,7 +569,7 @@ Fixpoint runStmtDual (fuel: nat) (vg1: valuation * valuation) (vl1: valuation) (
             end
         | _ => False
         end
-    end.
+    end. *)
 (*
 (*NOTE / TODO : A chaque fois on écrit les waiting et les emitted dans les deux valuations mais en pratique on lit toujours dans la 1
 Aussi, on peut pas avoir 2 signaux du même nom dans deux programmes différents, mais ça y'a pas le choix sauf en mettant des nombres random*)
