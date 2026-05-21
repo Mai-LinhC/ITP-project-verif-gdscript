@@ -267,7 +267,7 @@ Proof.
     rewrite lookup_add_eq in Hv2 by reflexivity.
     simpl in Hv2. subst Hn.
     destruct Hx1 as [Hv2 ?].
-    subst v2.
+    subst x.
     rewrite lookup_add_eq by reflexivity; reflexivity.
 
     -
@@ -278,8 +278,8 @@ Proof.
     rewrite lookup_add_eq in Hmatch by reflexivity.
     simpl in Hmatch; subst n2.
     destruct Hx3 as [Hx3 Hx4].
-    simpl in H. subst x3.
-    rewrite lookup_add_eq in H by reflexivity. subst x. subst x4.
+    simpl in H3. subst x4.
+    rewrite lookup_add_eq in H3 by reflexivity. subst x2. subst x5.
     rewrite lookup_add_ne in H2 by discriminate.
     rewrite lookup_add_eq in H2 by reflexivity.
     discriminate.
@@ -296,7 +296,7 @@ Proof.
     rewrite lookup_add_eq in Hv2 by reflexivity.
     simpl in Hv2. subst Hn.
     destruct Hx1 as [Hv2 ?].
-    subst v2.
+    subst x.
     rewrite lookup_add_ne by discriminate.
     rewrite lookup_add_ne by discriminate.
     rewrite lookup_add_ne by discriminate.
@@ -310,8 +310,8 @@ Proof.
     rewrite lookup_add_eq in Hmatch by reflexivity.
     simpl in Hmatch; subst n2.
     destruct Hx3 as [Hx3 Hx4].
-    simpl in H. subst x3.
-    rewrite lookup_add_eq in H by reflexivity. subst x. subst x4.
+    simpl in H3. subst x5 x2 x4.
+    rewrite lookup_add_eq in H3 by reflexivity. subst x1. subst x.
     rewrite lookup_add_ne in H2 by discriminate.
     rewrite lookup_add_eq in H2 by reflexivity.
     discriminate.
