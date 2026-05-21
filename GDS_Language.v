@@ -105,43 +105,167 @@ Definition interp_binop (b: BinopName) (n1 n2: nat) :=
   | Modulo => Nat.modulo n1 n2
   end.
 
-  Fixpoint interp (e: expr) (v: valuation) {struct e}: nat :=
+  Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
   match e with
-  | Const n => n
+  | Const n => Some n
   | Var x => match v $? x with Some a =>
         match a with
-        | varAss n => n
-        | methodAss args ret body => 0
-        | waitAss n st => 0
+        | varAss n => Some n
+        | methodAss args ret body => None
+        | waitAss n st => None
         end
-   | None => 0 end
-  | Binop b e1 e2 => interp_binop b (interp e1 v) (interp e2 v)
+   | None => None end
+  | Binop b e1 e2 => match (interp e1 v), (interp e2 v) with
+    | Some n1, Some n2 => Some (interp_binop b n1 n2)
+    | _, _ => None
+    end
   end.
 
-  Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: nat :=
+  Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: option nat :=
     match e with
-    | Const n => n
+    | Const n => Some n
     | Var x => match vl $? x with 
     | Some a =>
         match a with
-        | varAss n => n
-        | methodAss args ret body => 0
-        | waitAss n st => 0
+        | varAss n => Some n
+        | methodAss args ret body => None
+        | waitAss n st => None
         end
     | None => match vg $? x with 
         | Some a =>
             match a with
-            | varAss n => n
-            | methodAss args ret body => 0
-            | waitAss n st => 0
+            | varAss n => Some n
+            | methodAss args ret body => None
+            | waitAss n st => None
             end
-        | None => 0
+        | None => None
         end
     end
-  | Binop b e1 e2 => interp_binop b (interp2 e1 vg vl) (interp2 e2 vg vl)
+  | Binop b e1 e2 => match (interp2 e1 vg vl), (interp2 e2 vg vl) with
+    | Some n1, Some n2 => Some (interp_binop b n1 n2)
+    | _, _ => None
+    end
   end.
 
 
+Fixpoint runStmtP (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt): option (valuation * valuation) :=
+    match fuel with
+    | O => None
+    | S fuel' =>
+        match st with
+        | varDeclStmt name e => match interp2 e vg1 vl1 with
+                                | Some n => Some (vg1, (vl1 $+ (name, varAss n)))
+                                | None => None
+                                end
+        | ifStmt e s1 s2 => match interp2 e vg1 vl1 with
+                            | Some 0 => runStmtP fuel' vg1 vl1 s2
+                            | Some _n => runStmtP fuel' vg1 vl1 s1
+                            | None => None
+                            end
+        | whileStmt e s => match interp2 e vg1 vl1 with
+                            | Some 0 => Some (vg1, vl1)
+                            | Some _n => match (runStmtP fuel' vg1 vl1 s) with
+                                | Some (vgmid, vlmid) => runStmtP fuel' vgmid vlmid st
+                                | None => None
+                                end
+                            | None => None
+                            end
+        | assignmentStmt name e => match vl1 $? name with
+                                | Some _ => match interp2 e vg1 vl1 with
+                                    | Some n => Some (vg1, (vl1 $+ (name, varAss n)))
+                                    | None => None
+                                    end
+                                | None => match vg1 $? name with
+                                    | Some _ => match interp2 e vg1 vl1 with
+                                        | Some n => Some (vg1 $+ (name, varAss n), vl1)
+                                        | None => None
+                                        end
+                                    | None => None
+                                    end
+                                end
+        | awaitStmt sig_name => Some (vg1, vl1)
+        | sequence s1 s2 => match s1 with
+            | awaitStmt sig_name => match interp (Var sig_name) vg1 with
+                | Some 0 | None => Some (vg1 $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2), vl1)
+                | Some _n => runStmtP fuel' vg1 vl1 s2
+                end
+            | _ => match runStmtP fuel' vg1 vl1 s1 with
+                | Some (vgmid, vlmid) => runStmtP fuel' vgmid vlmid s2
+                | None => None
+                end
+            end
+        | assignCallMethodStmt ret method_name args => match vg1 $? method_name with
+            | Some (methodAss name_args found_ret found_body) => match 
+                (runStmtP fuel' vg1 
+                (fold_left 
+                    (fun (acc: valuation) (arg_argname: expr * string) => 
+                        match interp2 (fst arg_argname) vg1 vl1 with
+                        | Some n => (acc $+ ((snd arg_argname), varAss n))
+                        (*If we give an argument that isn't defined, it is not added to the valuation.
+                        this might not be the correct behavior (would be better if the whole runStmt returned None. TODO: investigate)*)
+                        | None => acc
+                        end
+                    ) 
+                    (combine args name_args) ($0)) 
+                found_body) with
+                | Some (vgmid, vlmid) => match ret, found_ret with
+                    | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
+                        | Some r => match runStmtP fuel' vgmid vl1 (assignmentStmt s_ret (Const r)) with
+                            | Some (vg2, vl2) => Some (vg2, vl2)
+                            | None => Some (vgmid, vl1 $+ (s_ret, varAss r))
+                            end
+                        | None => None 
+                        end
+                    | Some _, None => None
+                    | None, _ => Some (vgmid, vl1)
+                    end
+                | None => None
+                end
+            | _ => None
+            end
+        | emitSignalStmt sig_name opt_callback args => let vgmid := (vg1 $+ (sig_name, varAss 1)) in match opt_callback with
+            | Some (f, _n) => match runStmtP fuel' vgmid vl1 (assignCallMethodStmt None f args) with
+                | Some (vgmid', vlmid') => match vgmid' $? ("waiting_" ++ sig_name)%string with
+                    | Some (waitAss _ body) => runStmtP fuel' vgmid' vlmid' body
+                    | _ => Some (vgmid', vlmid')
+                    end
+                | None => None
+                end
+            | None => match vgmid $? ("waiting_" ++ sig_name)%string with
+                | Some (waitAss _ body) => runStmtP fuel' vgmid vl1 body
+                | _ => Some (vgmid, vl1)
+                end
+            end
+        | skip => Some (vg1, vl1)
+        end
+    end.
+
+Fixpoint runP (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
+    match fuel with
+    | O => None
+    | S fuel' =>
+        match d with
+        | classVarDecl name e => match (interp e v) with
+                                | Some n => Some (v $+ (name, varAss n))
+                                | None => None
+                                end
+        | methodDecl name args ret body => Some (v $+ (name, methodAss args ret body))
+        | readyDecl body => match (runStmtP fuel' v ($0) body) with
+            | Some (vg2, vl2) => Some vg2
+            | None => None
+            end
+        | processDecl body => match runStmtP fuel' v $0 body with
+            | Some (vgmid, vlmid) => runP fuel' vgmid d
+            | None => None
+            end
+        | SequenceDecl d1 d2 => match runP fuel' v d1 with
+            | Some vmid => runP fuel' vmid d2
+            | None => None
+            end
+        | EndDecl => Some v
+        end
+    end.
+(* 
 Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: valuation) (vl2: valuation): Prop :=
     match fuel with
     | O => False
@@ -185,7 +309,7 @@ Fixpoint runStmt (fuel: nat) (vg1: valuation) (vl1: valuation) (st: stmt) (vg2: 
                         vl1 $? s_ret = None /\ vgmid $? s_ret = None /\ (vl2 = vl1 $+ (s_ret, varAss r) /\ vgmid = vg2 (* otw, new val *)
                         )))
                     | Some _, None => False
-                    | None, _ => vl2 = vlmid /\ vg2 = vgmid
+                    | None, _ => vl2 = vl1 /\ vg2 = vgmid
                     end
         (*If callback is Some, assignCallMethodStmt in garbage return variable with args.
         If None, do nothing. In both cases, set the signal to true in valuation to show it has been emitted.
@@ -373,4 +497,4 @@ Fixpoint runDual (fuel: nat) (v1: valuation * valuation) (dA: topLevelDecl) (dB:
             end 
         | _ => False
         end
-    end.
+    end. *)
