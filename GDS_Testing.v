@@ -15,9 +15,39 @@ Open Scope expr.
     | [ |- _ ] => subst; eauto; try discriminate
   end. *)
 
-  Ltac inv H := inversion H; subst; clear H.
+Ltac inv H := inversion H; subst; clear H.
 
-  (*TODO: Probablement fausse, à changer*)
+Ltac general_match := match goal with
+    | [|- _ -> _]  => intros
+    | [ H: exists _,  _ |-  _ ] => destruct H
+    | [ H: _ /\ _ |- _ ] => destruct H
+    | [ |- _ /\ _ ] => split
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [H: ?a = ?a |- _ ] => clear H
+    | [H: context[ (_)%nat] |- _ ] => simpl in H
+    end.
+
+
+Ltac map_match := match goal with
+    | [|- (_ $+ (?k, ?v)) $? ?k = Some ?v] => rewrite lookup_add_eq by reflexivity 
+    | [H: context[interp (Const _) _] |- _ ] => unfold interp in H
+    | [H: context[$0 $? _] |- _] => rewrite lookup_empty in H
+    | [H: context[(_ $+ (?k, ?v)) $? ?k] |- _] => rewrite lookup_add_eq in H by reflexivity
+    | [H: context[(_ $+ (?k1, ?v)) $? ?k2] |- _] => rewrite lookup_add_ne in H by discriminate
+    end.
+
+Ltac run_match := match goal with
+    (* | [H: run _ _ (SequenceDecl _ _) = _ |- _] => inv H
+    | [H: run _ _ (classVarDecl _ (Const _)) = _ |- _] => inv H
+    | [H: run _ _ (readyDecl _ ) = _ |- _] => inv H
+    | [H: run _ _ (methodDecl _ _ _ _) = _ |- _] => inv H
+    | [H: run _ _ EndDecl = _ |- _] => destruct H *)
+    | [H: Some (?a, ?b) = Some (?c, ?d) |- _ ] => injection H as Hvg2 Hvl2
+    end.
+
+Ltac combine_match := try general_match; try map_match; try run_match; subst; eauto; try discriminate; try contradiction.
+
+
   Ltac program_match := match goal with 
     | [|- (_ $+ (?k, ?v)) $? ?k = Some ?v] => rewrite lookup_add_eq by reflexivity 
     | [ H: exists _,  _ |-  _ ] => destruct H
@@ -39,20 +69,39 @@ Open Scope expr.
     | [ |- _ ] => subst; simpl in *; eauto; try discriminate; try contradiction
   end.
 
-Theorem runVar :    
+Ltac test := match goal with
+    | [|- context[$0 $? _]] => rewrite lookup_empty
+    | [|- context[(_ $+ (?k, ?v)) $? ?k]] => rewrite lookup_add_eq by reflexivity
+    | [|- context[(_ $+ (?k1, ?v)) $? ?k2]] => rewrite lookup_add_ne by discriminate
+    | [|- _ ] => subst; simpl in *; eauto; try f_equal; try discriminate; try contradiction
+    end.
+
+
+Theorem runStmtVar :    
     forall vg2 vl2, 
     runStmt 10 $0 $0 
     ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
     (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
     -> (vl2 $? "ret" = Some (varAss 5)).
 Proof.
-    intros.
-    inversion H.
-    repeat program_match.
+    repeat combine_match.
 Qed.
 
 
-Theorem runIf :
+
+Theorem erunStmtVar :    
+    exists vg2 vl2, 
+    runStmt 10 $0 $0 
+    ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
+    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 5)).
+Proof.
+    eexists; eexists.
+    split; repeat test.
+Qed.
+
+
+Theorem runStmtIf :
     forall vg2 vl2, 
     (runStmt 10 $0 $0 
     ((( (var "a" := Const 2 ;; var "b" := Const 3) ;; 
@@ -62,36 +111,68 @@ Theorem runIf :
     skip)) = Some (vg2, vl2)
     -> (vl2 $? "ret" = Some (varAss 10)).
 Proof.
-    intros.
-    inversion H.
-    repeat program_match.
+    repeat combine_match.
+Qed.
+
+Theorem erunStmtIf :
+    exists vg2 vl2, 
+    (runStmt 4 $0 $0 
+    ((( (var "a" := Const 2 ;; var "b" := Const 3) ;; 
+    when ((Var "b") - (Var "a")) 
+    then (var "ret" := Const 10) 
+    else (var "ret" := Const 5) done) ) ;; 
+    skip)) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 10)).
+Proof.
+    eexists; eexists.
+    split; repeat test.
 Qed.
 
 
-Theorem runWhile :
+Theorem runStmtWhile :
     forall vg2 vl2, 
     (runStmt 10 $0 $0 
     ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
     var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
     -> (vl2 $? "ret" = Some (varAss 5)).
 Proof.
-    intros.
-    inversion H.
-    repeat program_match.
+    repeat combine_match.
 Qed.
+
+Theorem erunStmtWhile :
+    exists vg2 vl2, 
+    (runStmt 6 $0 $0 
+    ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
+    var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 5)).
+Proof.
+    eexists; eexists.
+    split; repeat test.
+Qed.
+
 
 Theorem globalExe1 :
     forall vg2, (run 5 $0 
     ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)) = Some vg2 
-    ->(vg2 $? "ret" = Some (varAss 10)).
+    -> (vg2 $? "ret" = Some (varAss 10)).
 Proof.
-    intros.
+    repeat combine_match.
     inversion H.
-    repeat program_match.
-    inversion H1.
-    repeat program_match.
+    combine_match.
+Qed.
+
+Theorem eglobalExe1 :
+    exists vg2, (run 5 $0 
+    ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
+    methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)) = Some vg2 
+    /\ (vg2 $? "ret" = Some (varAss 10)).
+Proof.
+    eexists.
+    split; repeat test.
+Qed.
 
 (* Theorem globalExe1 :
     forall vg2, (run 5 $0 
@@ -148,15 +229,28 @@ Proof.
 Qed. *)
 
 Theorem globalExe2 :
-    forall vg2, (run 10 $0 
+    forall vg2, (run 7 $0 
     (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)) = Some vg2 
-    ->((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
+    -> ((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
 Proof.
+    do 2 combine_match.
+    - admit.
 Admitted.
 
-Theorem runrocess :
+Theorem eglobalExe2 :
+    exists vg2, (run 6 $0 
+    (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
+    methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)) = Some vg2 
+    /\ ((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
+Proof.
+    eexists.
+    split; repeat test.
+Qed.
+
+(* Theorem runrocess :
     forall v2, (run 15 $0 (
        (topVar "ret" := Const 0 ;;; processDecl(
         ((var "a" := Const 10 ;; "ret" <- Var "a") ;; skip)) ;;; 
@@ -189,4 +283,4 @@ Theorem runSignalCallback :
     ) v2 
     -> (v2 $? "ret" = Some (varAss 10)).
 Proof.
-Admitted.
+Admitted. *)
