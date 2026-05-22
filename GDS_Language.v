@@ -79,8 +79,8 @@ Notation "'while' e 'loop' body 'done'" := (whileStmt e body)(at level 75).
 Notation "x <- e" := (assignmentStmt x e) (at level 75).
 Notation "'await' x" := (awaitStmt x)(at level 75).
 
-Infix ";;" := sequence (at level 76).
-Infix ";;;" := SequenceDecl (at level 76).
+Infix ";;" := sequence (at level 76, right associativity).
+Infix ";;;" := SequenceDecl (at level 76, right associativity).
 
 Infix "&" := (Binop LogAnd) (at level 80) : expr.
 Infix "==" := (Binop Eq) (at level 70) : expr.
@@ -258,6 +258,8 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
         end
     end.
 
+Arguments runStmt _ _ _ _ : simpl never.
+
 Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
     match fuel with
     | O => None
@@ -288,6 +290,9 @@ Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
         | EndDecl => Some v
         end
     end.
+
+Arguments run _ _ _  : simpl never.
+
 
 
 Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (st: stmt) : option((valuation * valuation) * valuation) :=
@@ -544,6 +549,8 @@ Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (s
         end
     end.
 
+Arguments runStmtDual _ _ _ _ : simpl never.
+
 
 (*For this to be correct, the initial val should have current as 1 in fst v*)
 Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB: topLevelDecl) : option (valuation * valuation) :=
@@ -613,3 +620,5 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
         | _ => None
         end
     end.
+
+Arguments runDual _ _ _ _ : simpl never.

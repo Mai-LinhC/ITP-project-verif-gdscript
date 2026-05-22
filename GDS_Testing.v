@@ -24,7 +24,7 @@ Ltac general_match := match goal with
     | [ |- _ /\ _ ] => split
     | [ H : _ \/ _ |- _ ] => destruct H
     | [H: ?a = ?a |- _ ] => clear H
-    | [H: context[ (_)%nat] |- _ ] => simpl in H
+    | [H: context[ (_)%nat] |- _ ] => cbv in H
     end.
 
 
@@ -66,14 +66,14 @@ Ltac combine_match := try general_match; try map_match; try run_match; subst; ea
     | [H: run _ _ EndDecl = _ |- _] => destruct H
     | [H: ?a = ?a |- _ ] => clear H
     | [H: Some (?a, ?b) = Some (?c, ?d) |- _ ] => injection H as Hvg2 Hvl2 (*Seems to crash Rocq ?*)
-    | [ |- _ ] => subst; simpl in *; eauto; try discriminate; try contradiction
+    | [ |- _ ] => subst; cbv in *; eauto; try discriminate; try contradiction
   end.
 
-Ltac test := match goal with
+Ltac existential_match := match goal with
     | [|- context[$0 $? _]] => rewrite lookup_empty
     | [|- context[(_ $+ (?k, ?v)) $? ?k]] => rewrite lookup_add_eq by reflexivity
     | [|- context[(_ $+ (?k1, ?v)) $? ?k2]] => rewrite lookup_add_ne by discriminate
-    | [|- _ ] => subst; simpl in *; eauto; try f_equal; try discriminate; try contradiction
+    | [|- _ ] => subst; cbv in *; eauto; try f_equal; try discriminate; try contradiction
     end.
 
 
@@ -88,7 +88,6 @@ Proof.
 Qed.
 
 
-
 Theorem erunStmtVar :    
     exists vg2 vl2, 
     runStmt 10 $0 $0 
@@ -97,7 +96,7 @@ Theorem erunStmtVar :
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     eexists; eexists.
-    split; repeat test.
+    split; repeat existential_match.
 Qed.
 
 
@@ -125,7 +124,7 @@ Theorem erunStmtIf :
     /\ (vl2 $? "ret" = Some (varAss 10)).
 Proof.
     eexists; eexists.
-    split; repeat test.
+    split; repeat existential_match.
 Qed.
 
 
@@ -141,13 +140,13 @@ Qed.
 
 Theorem erunStmtWhile :
     exists vg2 vl2, 
-    (runStmt 6 $0 $0 
+    (runStmt 10 $0 $0 
     ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
     var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     eexists; eexists.
-    split; repeat test.
+    split; repeat existential_match.
 Qed.
 
 
@@ -171,7 +170,7 @@ Theorem eglobalExe1 :
     /\ (vg2 $? "ret" = Some (varAss 10)).
 Proof.
     eexists.
-    split; repeat test.
+    split; repeat existential_match.
 Qed.
 
 (* Theorem globalExe1 :
@@ -247,21 +246,46 @@ Theorem eglobalExe2 :
     /\ ((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
 Proof.
     eexists.
-    split; repeat test.
+    split; repeat existential_match.
 Qed.
 
-(* Theorem runrocess :
-    forall v2, (run 15 $0 (
+
+(*New example existential_matching assignations*)
+Theorem eglobalExe3 :
+    exists vg2, (run 6 $0 
+    ((topVar "a" := Const 3) ;;;
+    readyDecl ("a" <- Const 8 ;; skip) ;;; EndDecl)) = Some vg2 
+    /\ ((vg2 $? "a" = Some (varAss 8))).
+Proof.
+    eexists.
+    split; repeat existential_match.
+Qed.
+
+
+Definition existential_matchProg := (run 5 $0 (
+       (processDecl(
+        ((var "a" := Const 10 ;; var "ret" := Var "a") ;; skip)) ;;; 
+        EndDecl) 
+    )).
+
+Compute existential_matchProg.
+
+
+Theorem erunProcess :
+    exists v2, (run 10 $0 (
        (topVar "ret" := Const 0 ;;; processDecl(
         ((var "a" := Const 10 ;; "ret" <- Var "a") ;; skip)) ;;; 
         EndDecl) 
-    ) v2) 
-    ->(v2 $? "ret" = Some (varAss 10)).
+    )) = Some v2
+    /\ (v2 $? "ret" = Some (varAss 10)).
 Proof.
+    eexists.
+    split; repeat existential_match.
 Admitted.
 
+
 (* Warning: la preuve suivante risque d’être particulièrement longue *)
-Theorem runSignal :
+(* Theorem runSignal :
      forall v2, run 15 $0 (  (* valeur de fuel choisie au pif, potentiellement ajuster pour que le théorème soit correct *)
         topVar "a" := Const 0 ;;; topVar "ret" := Const 0 ;;;
         readyDecl("a" <- Const 1) ;;;
@@ -273,14 +297,78 @@ Theorem runSignal :
      ) 
      v2 -> (v2 $? "ret" = Some (varAss 10)).
 Proof.
-Admitted.
+Admitted. *)
+
 
 (* NB: Si trop dur à prouver, on peut retirer l’argument “a” de callback_fun, mais c’est moins probant comme exemple. *)
 Theorem runSignalCallback :
-    forall v2, run 10 $0 (
+    exists v2, run 5 $0 (
         (topVar "ret" := Const 0 ;;; methodDecl "callback" ("a"::"b"::nil) None ("ret" <- Var "b")) ;;;
-        readyDecl(emitSignalStmt "sig" (Some ("callback", 0)) (Const 5 :: Const 10 :: nil))
-    ) v2 
-    -> (v2 $? "ret" = Some (varAss 10)).
+        readyDecl(emitSignalStmt "sig" (Some ("callback", 1)) (Const 5 :: Const 10 :: nil))
+    ) = Some v2 
+    /\ (v2 $? "ret" = Some (varAss 10)).
 Proof.
-Admitted. *)
+    eexists.
+    split; repeat existential_match.
+Qed.
+
+
+
+(*STARTING DUALS*)
+
+Theorem erunStmtDualVar :    
+    exists vg2 vl2, 
+    runStmtDual 10 ($0 $+ ("current", varAss 1), $0) $0 
+    ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
+    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 5)).
+Proof.
+    eexists; eexists.
+    split; repeat existential_match.
+Qed.
+
+
+Theorem erunStmtDualIf :
+    exists vg2 vl2, 
+    (runStmtDual 4 ($0 $+ ("current", varAss 1), $0) $0 
+    ((( (var "a" := Const 2 ;; var "b" := Const 3) ;; 
+    when ((Var "b") - (Var "a")) 
+    then (var "ret" := Const 10) 
+    else (var "ret" := Const 5) done) ) ;; 
+    skip)) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 10)).
+Proof.
+    eexists; eexists.
+    split; repeat existential_match.
+Qed.
+
+
+Theorem erunStmtDualWhile :
+    exists vg2 vl2, 
+    (runStmtDual 6 ($0 $+ ("current", varAss 1), $0) $0 
+    ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
+    var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
+    /\ (vl2 $? "ret" = Some (varAss 5)).
+Proof.
+    eexists; eexists.
+    split; repeat existential_match.
+Qed.
+
+
+Definition dA1 := (topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ;;;
+    methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1)) ;;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl).
+
+Definition dB1 := (topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ;;;
+    methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1));;;
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl).
+
+Theorem eRunDualProgsNoOverlap :
+    exists vg2, (runDual 5 ($0 $+ ("current", varAss 1), $0) dA1 dB1
+    ) = Some vg2 
+    /\ (fst vg2 $? "ret" = Some (varAss 10)) /\ (snd vg2 $? "ret" = Some (varAss 4)).
+Proof.
+    eexists.
+    repeat split; repeat existential_match.
+Qed.
+
