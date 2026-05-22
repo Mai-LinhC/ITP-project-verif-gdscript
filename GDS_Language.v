@@ -1,7 +1,7 @@
 From Stdlib Require Import String.
 From Stdlib Require Export NArith Arith.
 From Stdlib Require Import List.
-Require Import Lab07Map.
+Require Import CompMap.
 
 Inductive BinopName :=
 | LogAnd 
@@ -120,6 +120,7 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
         | _, _ => None
         end
      end.
+
 
   Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: option nat :=
     match e with
@@ -260,6 +261,10 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
 
 Arguments runStmt _ _ _ _ : simpl never.
 
+
+Definition stmtFuel := 10.
+
+
 Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
     match fuel with
     | O => None
@@ -278,7 +283,7 @@ Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
             | None => None
             end
         (*Run until no fuel remaining*)
-        | processDecl body => if (Nat.eqb fuel' 1) then Some v else match runStmt fuel' v $0 body with
+        | processDecl body => if (Nat.eqb fuel' 1) then Some v else match runStmt stmtFuel v $0 body with
             | Some (vgmid, vlmid) => run fuel' vgmid d
             | None => None
             end
@@ -569,8 +574,8 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 end
             | processDecl bodyA => if (Nat.eqb fuel' 1) then Some v else match dB with
                 (*Run both processes one after the other until no fuel, in which case we return the last val*)
-                | processDecl bodyB => match runStmtDual fuel' v $0 bodyA with
-                    | Some (vgmid, vlmid) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual fuel' vgswitch $0 bodyB with
+                | processDecl bodyB => match runStmtDual stmtFuel v $0 bodyA with
+                    | Some (vgmid, vlmid) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual stmtFuel vgswitch $0 bodyB with
                         | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' dA dB
                         | None => None
                         end
