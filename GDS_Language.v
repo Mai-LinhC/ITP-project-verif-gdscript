@@ -94,58 +94,58 @@ Infix "mod" := (Binop Modulo) (at level 40) : expr.
 
 Definition interp_binop (b: BinopName) (n1 n2: nat) :=
   match b with
-  | LogAnd => Nat.land n1 n2
-  | Eq => if n1 =? n2 then 1 else 0
-  | Plus => n1 + n2
-  | Minus => n1 - n2
-  | Times => n1 * n2
-  | Divide => n1 / n2
-  | ShiftLeft => Nat.shiftl n1 n2
-  | ShiftRight => Nat.shiftr n1 n2
-  | Modulo => Nat.modulo n1 n2
+    | LogAnd => Nat.land n1 n2
+    | Eq => if n1 =? n2 then 1 else 0
+    | Plus => n1 + n2
+    | Minus => n1 - n2
+    | Times => n1 * n2
+    | Divide => n1 / n2
+    | ShiftLeft => Nat.shiftl n1 n2
+    | ShiftRight => Nat.shiftr n1 n2
+    | Modulo => Nat.modulo n1 n2
   end.
 
-  Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
+Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
   match e with
-  | Const n => Some n
-  | Var x => match v $? x with Some a =>
-        match a with
-        | varAss n => Some n
-        | methodAss args ret body => None
-        | waitAss n st => None
+    | Const n => Some n
+    | Var x => match v $? x with Some a =>
+            match a with
+            | varAss n => Some n
+            | methodAss args ret body => None
+            | waitAss n st => None
+            end
+    | None => None end
+    | Binop b e1 e2 => match (interp e1 v), (interp e2 v) with
+        | Some n1, Some n2 => Some (interp_binop b n1 n2)
+        | _, _ => None
         end
-   | None => None end
-  | Binop b e1 e2 => match (interp e1 v), (interp e2 v) with
-    | Some n1, Some n2 => Some (interp_binop b n1 n2)
-    | _, _ => None
-    end
-  end.
+     end.
 
   Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: option nat :=
     match e with
     | Const n => Some n
     | Var x => match vl $? x with 
-    | Some a =>
-        match a with
-        | varAss n => Some n
-        | methodAss args ret body => None
-        | waitAss n st => None
-        end
-    | None => match vg $? x with 
         | Some a =>
             match a with
             | varAss n => Some n
             | methodAss args ret body => None
             | waitAss n st => None
             end
-        | None => None
+        | None => match vg $? x with 
+            | Some a =>
+                match a with
+                | varAss n => Some n
+                | methodAss args ret body => None
+                | waitAss n st => None
+                end
+            | None => None
+            end
         end
-    end
-  | Binop b e1 e2 => match (interp2 e1 vg vl), (interp2 e2 vg vl) with
-    | Some n1, Some n2 => Some (interp_binop b n1 n2)
-    | _, _ => None
-    end
-  end.
+    | Binop b e1 e2 => match (interp2 e1 vg vl), (interp2 e2 vg vl) with
+        | Some n1, Some n2 => Some (interp_binop b n1 n2)
+        | _, _ => None
+        end
+    end.
 
 
 Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option (valuation * valuation) :=
