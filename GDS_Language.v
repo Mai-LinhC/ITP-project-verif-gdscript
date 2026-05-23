@@ -262,7 +262,7 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
 Arguments runStmt _ _ _ _ : simpl never.
 
 
-Definition stmtFuel := 10.
+Definition stmtFuel := 20.
 
 
 Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
@@ -278,7 +278,7 @@ Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
         (*Just add method to valuation*)
         | methodDecl name args ret body => Some (v $+ (name, methodAss args ret body))
         (*Run the ready func once*)
-        | readyDecl body => match (runStmt fuel' v ($0) body) with
+        | readyDecl body => match (runStmt stmtFuel v ($0) body) with
             | Some (vg2, vl2) => Some vg2
             | None => None
             end
@@ -568,7 +568,7 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 | None => None
                 end
             | methodDecl name args ret body => Some ((fst v) $+ (name, methodAss args ret body), snd v)
-            | readyDecl body => match (runStmtDual fuel' v $0 body) with
+            | readyDecl body => match (runStmtDual stmtFuel v $0 body) with
                 | Some (vg2, vl2) => Some vg2
                 | None => None
                 end
@@ -582,7 +582,7 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                     | None => None
                     end
                 (*B is over, but might still be waiting or have a function callback in a signal of A, runStmt prog A then rerun*)
-                | EndDecl => match runStmtDual fuel' v $0 bodyA with
+                | EndDecl => match runStmtDual stmtFuel v $0 bodyA with
                     | Some (vgmid, vlmid) => runDual fuel' vgmid dA dB
                     | None => None
                     end
@@ -595,7 +595,8 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 end
             (*If B process, runStmt B then rerun. If B = endDecl, done. Else, just run B*)
             | EndDecl => match dB with
-                | processDecl bodyB => let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in match runStmtDual fuel' vgswitch $0 bodyB with
+                | processDecl bodyB => if (Nat.eqb fuel' 1) then Some v 
+                else let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in match runStmtDual stmtFuel vgswitch $0 bodyB with
                     | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' dA dB
                     | None => None
                     end
@@ -609,7 +610,7 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 | None => None
                 end
             | methodDecl name args ret body => Some (fst v, (snd v) $+ (name, methodAss args ret body))
-            | readyDecl body => match (runStmtDual fuel' v $0 body) with
+            | readyDecl body => match (runStmtDual stmtFuel v $0 body) with
                 | Some (vg2, vl2) => Some vg2
                 | None => None
                 end
