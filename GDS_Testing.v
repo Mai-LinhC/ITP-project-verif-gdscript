@@ -172,7 +172,7 @@ Definition dB1 := (topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ;;;
 
 
 Theorem RunDualProgsNoOverlap :
-    exists vg2, (runDual 15 defaultVal dA1 dB1
+    exists vg2, (runDual 15 defaultVal (dA1, dB1)
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 10)) /\ (snd vg2 $? "ret" = Some (varAss 4)).
 Proof.
@@ -187,7 +187,7 @@ Definition dA2 := (topVar "ret" := Const 3 ;;;
 Definition dB2 := readyDecl (emitSignalStmt "sigB" None nil) ;;; EndDecl.
 
 Theorem RunDualSimpleAwait :
-    exists vg2, (runDual 10 defaultVal dA2 dB2
+    exists vg2, (runDual 10 defaultVal (dA2, dB2)
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 10)).
 Proof.
@@ -205,7 +205,7 @@ Definition dB3 := readyDecl (emitSignalStmt "sigB" (Some ("func", 1)) (Const 8 :
 
 (*Context switch for callback and waiting*)
 Theorem RunDualEmitSignalCallbackAndAwait1 :
-    exists vg2, (runDual 10 defaultVal dA2 dB2
+    exists vg2, (runDual 10 defaultVal (dA3, dB3)
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 10)).
 Proof.
@@ -224,7 +224,7 @@ Definition dB3' := (topVar "ret" := Const 0 ;;;
 
 (*Context switch for callback but not await*)
 Theorem RunDualEmitSignalCallbackAndAwait2 :
-    exists vg2, (runDual 10 defaultVal dA3' dB3'
+    exists vg2, (runDual 10 defaultVal (dA3', dB3')
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 8)) /\ (snd vg2 $? "ret" = Some (varAss 10)).
 Proof.
@@ -242,7 +242,7 @@ Definition dB3'' := (topVar "ret" := Const 0 ;;;
 
 (*Context switch for await but not callback*)
 Theorem RunDualEmitSignalCallbackAndAwait3 :
-    exists vg2, (runDual 10 defaultVal dA3'' dB3''
+    exists vg2, (runDual 10 defaultVal (dA3'', dB3'')
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 8)) /\ (snd vg2 $? "ret" = Some (varAss 10)).
 Proof.
@@ -278,7 +278,7 @@ Qed.
 
 (*Very strong theorem*)
 Theorem RunDualProgsAwait :
-    exists vg2, (runDual 14 defaultVal dA4 dB4
+    exists vg2, (runDual 14 defaultVal (dA4, dB4)
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 10)).
 Proof.
@@ -300,7 +300,7 @@ Definition dB5 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
     processDecl( "a" <- Var "a" + Const 1) ;;; EndDecl).
 
 Theorem RunDualProgsAwaitSymmetric :
-    exists vg2, (runDual 14 defaultVal dA5 dB5
+    exists vg2, (runDual 14 defaultVal (dA5, dB5)
     ) = Some vg2 
     /\ (snd vg2 $? "ret" = Some (varAss 10)).
 Proof.

@@ -558,11 +558,11 @@ Arguments runStmtDual _ _ _ _ : simpl never.
 
 
 (*For this to be correct, the initial val should have current as 1 in fst v*)
-Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB: topLevelDecl) : option (valuation * valuation) :=
+Fixpoint runDual (fuel: nat) (v : valuation * valuation) (d: topLevelDecl * topLevelDecl) : option (valuation * valuation) :=
     match fuel with
     | O => None
     | S fuel' => match interp (Var "current") (fst v) with
-        | Some 1 => match dA with
+        | Some 1 => match fst d with
             | classVarDecl name e => match interp e (fst v) with
                 | Some n => Some ((fst v) $+ (name, varAss n), snd v)
                 | None => None
@@ -572,39 +572,39 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 | Some (vg2, vl2) => Some vg2
                 | None => None
                 end
-            | processDecl bodyA => if (Nat.eqb fuel' 1) then Some v else match dB with
+            | processDecl bodyA => if (Nat.eqb fuel' 1) then Some v else match snd d with
                 (*Run both processes one after the other until no fuel, in which case we return the last val*)
                 | processDecl bodyB => match runStmtDual stmtFuel v $0 bodyA with
                     | Some (vgmid, vlmid) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual stmtFuel vgswitch $0 bodyB with
-                        | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' dA dB
+                        | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' d
                         | None => None
                         end
                     | None => None
                     end
                 (*B is over, but might still be waiting or have a function callback in a signal of A, runStmt prog A then rerun*)
                 | EndDecl => match runStmtDual stmtFuel v $0 bodyA with
-                    | Some (vgmid, vlmid) => runDual fuel' vgmid dA dB
+                    | Some (vgmid, vlmid) => runDual fuel' vgmid d
                     | None => None
                     end
                 (*If B is not over but not process, switch and rerun*)
-                | _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in runDual fuel' vgswitch dA dB
+                | _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in runDual fuel' vgswitch d
                 end
-            | SequenceDecl d1 d2 => match runDual fuel' v d1 dB with
-                | Some vmid => runDual fuel' vmid d2 dB
+            | SequenceDecl d1 d2 => match runDual fuel' v (d1, snd d) with
+                | Some vmid => runDual fuel' vmid (d2, snd d)
                 | None => None
                 end
             (*If B process, runStmt B then rerun. If B = endDecl, done. Else, just run B*)
-            | EndDecl => match dB with
+            | EndDecl => match snd d with
                 | processDecl bodyB => if (Nat.eqb fuel' 1) then Some v 
                 else let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in match runStmtDual stmtFuel vgswitch $0 bodyB with
-                    | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' dA dB
+                    | Some (vg2, vl2) => let vgswitch' := ((fst vg2) $+ (("current")%string, varAss 1), snd vg2) in runDual fuel' vgswitch' d
                     | None => None
                     end
                 | EndDecl => Some v
-                | _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in runDual fuel' vgswitch dA dB
+                | _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 2)), snd v) in runDual fuel' vgswitch d
                 end
             end
-        | Some 2 => match dB with
+        | Some 2 => match snd d with
             | classVarDecl name e => match interp e (snd v) with
                 | Some n => Some (fst v, (snd v) $+ (name, varAss n))
                 | None => None
@@ -615,16 +615,16 @@ Fixpoint runDual (fuel: nat) (v : valuation * valuation) (dA: topLevelDecl) (dB:
                 | None => None
                 end
             (*Switch and rerun*)
-            | processDecl _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 1)), snd v) in runDual fuel' vgswitch dA dB
-            | SequenceDecl d1 d2 => match runDual fuel' v dA d1 with
-                | Some vmid => runDual fuel' vmid dA d2
+            | processDecl _ => let vgswitch := (((fst v) $+ (("current")%string, varAss 1)), snd v) in runDual fuel' vgswitch d
+            | SequenceDecl d1 d2 => match runDual fuel' v (fst d, d1) with
+                | Some vmid => runDual fuel' vmid (fst d, d2)
                 | None => None
                 end
             (*Switch and rerun*)
-            | EndDecl => let vgswitch := (((fst v) $+ (("current")%string, varAss 1)), snd v) in runDual fuel' vgswitch dA dB
+            | EndDecl => let vgswitch := (((fst v) $+ (("current")%string, varAss 1)), snd v) in runDual fuel' vgswitch d
             end
         | _ => None
         end
     end.
 
-Arguments runDual _ _ _ _ : simpl never.
+Arguments runDual _ _ _ : simpl never.
