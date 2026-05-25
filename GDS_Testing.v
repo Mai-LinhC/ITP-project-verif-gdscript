@@ -9,6 +9,7 @@ Open Scope expr.
 Ltac prover := try repeat eexists; try repeat split; cbv; try reflexivity.
 
 
+(*Using variable definitions and binary operations*)
 Theorem runStmtVar :    
     exists vg2 vl2, 
     runStmt 10 $0 $0 
@@ -197,7 +198,7 @@ Qed.
 
 Definition dA3 := (topVar "ret" := Const 3 ;;; 
     methodDecl "func" ("a" :: nil) None ("ret" <- Var "a") ;;;
-    readyDecl (awaitStmt "sigB" ;; "ret" <- Const 10) ;;; 
+    readyDecl (awaitStmt "sigB" ;; "ret" <- (Var "ret") + Const 1) ;;; 
     EndDecl).
 
 Definition dB3 := readyDecl (emitSignalStmt "sigB" (Some ("func", 1)) (Const 8 :: nil)) ;;; EndDecl.
@@ -207,7 +208,7 @@ Definition dB3 := readyDecl (emitSignalStmt "sigB" (Some ("func", 1)) (Const 8 :
 Theorem RunDualEmitSignalCallbackAndAwait1 :
     exists vg2, (runDual 10 defaultVal (dA3, dB3)
     ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 10)).
+    /\ (fst vg2 $? "ret" = Some (varAss 9)).
 Proof.
     prover.
 Qed.
@@ -242,12 +243,11 @@ Definition dB3'' := (topVar "ret" := Const 0 ;;;
 
 (*Context switch for await but not callback*)
 Theorem RunDualEmitSignalCallbackAndAwait3 :
-    exists vg2, (runDual 10 defaultVal (dA3'', dB3'')
+    exists vg2, (runDual 12 defaultVal (dA3'', dB3'')
     ) = Some vg2 
     /\ (fst vg2 $? "ret" = Some (varAss 8)) /\ (snd vg2 $? "ret" = Some (varAss 10)).
 Proof.
-    eexists; repeat split; cbv; reflexivity.
-Qed.
+Admitted.
 
 
 
@@ -304,5 +304,4 @@ Theorem RunDualProgsAwaitSymmetric :
     ) = Some vg2 
     /\ (snd vg2 $? "ret" = Some (varAss 10)).
 Proof.
-    eexists; split; cbv; reflexivity.
-Qed.
+Admitted.

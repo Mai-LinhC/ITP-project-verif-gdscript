@@ -45,3 +45,35 @@ Definition add {A B} `{Eqb A} (m : fmap A B) (k : A) (v : B) : fmap A B :=
 Notation "$0" := (empty _ _).
 Notation "m $+ ( k , v )" := (add m k v) (at level 50, left associativity).
 Infix "$?" := lookup (at level 50, no associativity).
+
+(* Removes EVERY binding of k. Because add shadows rather than overwrites,
+   deleting only the newest binding could expose an older one, so remove
+   filters out all of them. This makes (m $- k) $? k = None hold unconditionally. *)
+Definition remove {A B} `{Eqb A} (m : fmap A B) (k : A) : fmap A B :=
+  filter (fun p => negb (eqb k (fst p))) m.
+ 
+Notation "m $- k" := (remove m k) (at level 50, left associativity).
+ 
+Lemma lookup_remove_eq {A B} `{Eqb A} (m : fmap A B) (k : A) :
+  (m $- k) $? k = None.
+Proof.
+  unfold remove. induction m as [| [k' v] m' IH]; simpl.
+  - reflexivity.
+  - destruct (eqb k k') eqn:E; simpl.
+    + exact IH.
+    + rewrite E. exact IH.
+Qed.
+ 
+Lemma lookup_remove_neq {A B} `{Eqb A} (m : fmap A B) (k j : A) :
+  k <> j -> (m $- j) $? k = m $? k.
+Proof.
+  intro Hkj. unfold remove. induction m as [| [k' v] m' IH]; simpl.
+  - reflexivity.
+  - destruct (eqb j k') eqn:Ej; simpl.
+    + apply eqb_eq in Ej. subst k'.
+      rewrite (eqb_neq Hkj). exact IH.
+    + destruct (eqb k k') eqn:Ek.
+      * reflexivity.
+      * exact IH.
+Qed.
+

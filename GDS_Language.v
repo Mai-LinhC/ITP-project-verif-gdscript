@@ -191,15 +191,10 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
         (*Skip, await is checked in sequence, because await as last instruction does nothing anyways*)
         | awaitStmt sig_name => Some (vg, vl)
         (*If s1 is await:
-             check if the waited signal has been emitted. 
-                If so just run s2
-                else add waiting s2 to global valuation then skip, 
+             add waiting s2 to global valuation then skip, 
         else just run s1 then s2*)
         | sequence s1 s2 => match s1 with
-            | awaitStmt sig_name => match interp (Var sig_name) vg with
-                | Some 0 | None => Some (vg $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2), vl)
-                | Some _n => runStmt fuel' vg vl s2
-                end
+            | awaitStmt sig_name => Some (vg $+ (sig_name, waitAss 1 s2), vl)
             | _ => match runStmt fuel' vg vl s1 with
                 | Some (vgmid, vlmid) => runStmt fuel' vgmid vlmid s2
                 | None => None
@@ -237,22 +232,22 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
                 end
             | _ => None
             end
-        (*Mark signal as emitted, check for callback (if exists, call this function with args of signal), then check for awaiting body (if exists, call this function)*)
-        | emitSignalStmt sig_name opt_callback args => let vgmid := (vg $+ (sig_name, varAss 1)) in match opt_callback with
-            | Some (f, _n) => match runStmt fuel' vgmid vl (assignCallMethodStmt None f args) with
-                | Some (vgmid', vlmid') => match vgmid' $? ("waiting_" ++ sig_name)%string with
+        (*Check for callback (if exists, call this function with args of signal), then check for awaiting body (if exists, call this function)*)
+        | emitSignalStmt sig_name opt_callback args => match opt_callback with
+            | Some (f, _n) => match runStmt fuel' vg vl (assignCallMethodStmt None f args) with
+                | Some (vgmid, vlmid) => match vgmid $? sig_name with
                     (*Here we do a mini context switch for the local val*)
-                    | Some (waitAss _ body) => match runStmt fuel' vgmid' $0 body with
-                        | Some (vg2, vl2) => Some (vg2, vlmid')
+                    | Some (waitAss _ body) => match runStmt fuel' vgmid $0 body with
+                        | Some (vg2, vl2) => Some (vg2 $- sig_name, vlmid)
                         | None => None
                         end
-                    | _ => Some (vgmid', vlmid')
+                    | _ => Some (vgmid, vlmid)
                     end
                 | None => None
                 end
-            | None => match vgmid $? ("waiting_" ++ sig_name)%string with
-                | Some (waitAss _ body) => runStmt fuel' vgmid vl body
-                | _ => Some (vgmid, vl)
+            | None => match vg $? sig_name with
+                | Some (waitAss _ body) => runStmt fuel' vg vl body
+                | _ => Some (vg, vl)
                 end
             end
         | skip => Some (vg, vl)
@@ -337,11 +332,7 @@ Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (s
                 end
             | await sig_name => Some (vg, vl)
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => match interp (Var sig_name) (fst vg) with
-                    (*Here, we add "waiting" to fst and snd of vg, but fst is probably sufficient*)
-                    | Some 0 | None => Some (((fst vg) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2), (snd vg) $+ (("waiting_" ++ sig_name)%string, waitAss 1 s2)), vl)
-                    | Some _n => runStmtDual fuel' vg vl s2
-                    end
+                | awaitStmt sig_name => Some (((fst vg) $+ (sig_name, waitAss 1 s2), snd vg), vl)
                 | _ => match runStmtDual fuel' vg vl s1 with
                     | Some (vgmid, vlmid) => runStmtDual fuel' vgmid vlmid s2
                     | None => None
@@ -376,52 +367,53 @@ Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (s
                         end
                 | _ => None
                 end
-            | emitSignalStmt sig_name opt_callback args => let vgmid := ((fst vg) $+ (sig_name, varAss 1), (snd vg) $+ (sig_name, varAss 1)) in match opt_callback with
+            | emitSignalStmt sig_name opt_callback args => match opt_callback with
             (*Context switch if n = 2*)
-                | Some (f, 1) => match runStmtDual fuel' vgmid vl (assignCallMethodStmt None f args) with
-                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                | Some (f, 1) => match runStmtDual fuel' vg vl (assignCallMethodStmt None f args) with
+                    (*Check for waiting bodies*)
+                    | Some (vgmid, vlmid) => match (fst vgmid) $? sig_name with
                         (*Context switch if 2*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' vgmid' $0 body with
-                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                        | Some (waitAss 1 body) => match runStmtDual fuel' vgmid $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vlmid)
                             | None => None
                             end
                         (*Double checking: here we want to set current to 2, call body with an empty local val, set current to 1 again and return that new global val with the old local one*)
-                        | Some (waitAss 2 body) => let vgswitch := ((fst vgmid') $+ (("current")%string, varAss 2), snd vgmid') in match runStmtDual fuel' vgswitch $0 body with
-                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vlmid')
+                        | Some (waitAss 2 body) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual fuel' vgswitch $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) $- sig_name, snd vg2), vlmid)
                             | None => None
                             end
-                        | _ => Some (vgmid', vlmid')
+                        | _ => Some (vgmid, vlmid)
                         end
                     | None => None
                     end
                 (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
-                | Some (f, 2) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual fuel' vgswitch vl (assignCallMethodStmt None f args) with
-                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                | Some (f, 2) => let vgswitch := ((fst vg) $+ (("current")%string, varAss 2), snd vg) in match runStmtDual fuel' vgswitch vl (assignCallMethodStmt None f args) with
+                    | Some (vgmid, vlmid) => match (fst vgmid) $? sig_name with
                         (*Already switched, so stay in current if two or switch back if 1*)
-                        | Some (waitAss 1 body) => let vgswitch' := ((fst vgmid') $+ (("current")%string, varAss 1), snd vgmid') in match runStmtDual fuel' vgswitch' $0 body with
-                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                        | Some (waitAss 1 body) => let vgswitch' := ((fst vgmid) $+ (("current")%string, varAss 1), snd vgmid) in match runStmtDual fuel' vgswitch' $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vlmid)
                             | None => None
                             end
-                        | Some (waitAss 2 body) => match runStmtDual fuel' vgmid' $0 body with
-                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vlmid')
+                        | Some (waitAss 2 body) => match runStmtDual fuel' vgmid $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) $- sig_name, snd vg2), vlmid)
                             | None => None
                             end
                         (*Switch back*)
-                        | _ => Some (((fst vgmid') $+ (("current")%string, varAss 1) , snd vgmid'), vlmid')
+                        | _ => Some (((fst vgmid) $+ (("current")%string, varAss 1) , snd vgmid), vlmid)
                         end
                     | None => None
                     end
-                | None => match (fst vgmid) $? ("waiting_" ++ sig_name)%string with
+                | None => match (fst vg) $? sig_name with
                     (*Context switch if 2*)
-                    | Some (waitAss 1 body) => match runStmtDual fuel' vgmid $0 body with
-                        | Some (vg2, vl2) => Some (vg2, vl)
+                    | Some (waitAss 1 body) => match runStmtDual fuel' vg $0 body with
+                        | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vl)
                         | None => None
                         end
-                    | Some (waitAss 2 body) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual fuel' vgswitch $0 body with
-                        | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) , snd vg2), vl)
+                    | Some (waitAss 2 body) => let vgswitch := ((fst vg) $+ (("current")%string, varAss 2), snd vg) in match runStmtDual fuel' vgswitch $0 body with
+                        | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 1) $- sig_name , snd vg2), vl)
                         | None => None
                         end
-                    | _ => Some (vgmid, vl)
+                    | _ => Some (vg, vl)
                     end
                 | _ => None
                 end
@@ -460,11 +452,7 @@ Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (s
                 end
             | await sig_name => Some (vg, vl)
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => match interp (Var sig_name) (fst vg) with
-                    (*Here, we add "waiting" to fst and snd of vg, but fst is probably sufficient*)
-                    | Some 0 | None => Some (((fst vg) $+ (("waiting_" ++ sig_name)%string, waitAss 2 s2), (snd vg) $+ (("waiting_" ++ sig_name)%string, waitAss 2 s2)), vl)
-                    | Some _n => runStmtDual fuel' vg vl s2
-                    end
+                | awaitStmt sig_name => Some (((fst vg) $+ (sig_name, waitAss 2 s2), snd vg), vl)
                 | _ => match runStmtDual fuel' vg vl s1 with
                     | Some (vgmid, vlmid) => runStmtDual fuel' vgmid vlmid s2
                     | None => None
@@ -499,52 +487,52 @@ Fixpoint runStmtDual (fuel: nat) (vg : valuation * valuation) (vl: valuation) (s
                         end
                 | _ => None
                 end
-            | emitSignalStmt sig_name opt_callback args => let vgmid := ((fst vg) $+ (sig_name, varAss 1), (snd vg) $+ (sig_name, varAss 1)) in match opt_callback with
+            | emitSignalStmt sig_name opt_callback args => match opt_callback with
             (*Context switch if n = 1*)
                 (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
-                | Some (f, 1) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 1), snd vgmid) in match runStmtDual fuel' vgswitch vl (assignCallMethodStmt None f args) with
-                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                | Some (f, 1) => let vgswitch := ((fst vg) $+ (("current")%string, varAss 1), snd vg) in match runStmtDual fuel' vgswitch vl (assignCallMethodStmt None f args) with
+                    | Some (vgmid, vlimd) => match (fst vgmid) $? sig_name with
                         (*Already switched, so stay in current if 1 or switch back if 2*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' vgmid' $0 body with
-                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) , snd vg2), vlmid')
+                        | Some (waitAss 1 body) => match runStmtDual fuel' vgmid $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) $- sig_name, snd vg2), vlimd)
                             | None => None
                             end
-                        | Some (waitAss 2 body) => let vgswitch' := ((fst vgmid') $+ (("current")%string, varAss 2), snd vgmid') in match runStmtDual fuel' vgswitch' $0 body with
-                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                        | Some (waitAss 2 body) => let vgswitch' := ((fst vgmid) $+ (("current")%string, varAss 2), snd vgmid) in match runStmtDual fuel' vgswitch' $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vlimd)
                             | None => None
                             end
                         (*Switch back*)
-                        | _ => Some (((fst vgmid') $+ (("current")%string, varAss 2) , snd vgmid'), vlmid')
+                        | _ => Some (((fst vgmid) $+ (("current")%string, varAss 2) , snd vgmid), vlimd)
                         end
                     | None => None
                     end
-                | Some (f, 2) => match runStmtDual fuel' vgmid vl (assignCallMethodStmt None f args) with
-                    | Some (vgmid', vlmid') => match (fst vgmid') $? ("waiting_" ++ sig_name)%string with
+                | Some (f, 2) => match runStmtDual fuel' vg vl (assignCallMethodStmt None f args) with
+                    | Some (vgmid, vlimd) => match (fst vgmid) $? sig_name with
                         (*Context switch if 1*)
                         (*Double checking: here we want to set current to 1, call body with an empty local val, set current to 2 again and return that new global val with the old local one*)
-                        | Some (waitAss 1 body) => let vgswitch := ((fst vgmid') $+ (("current")%string, varAss 1), snd vgmid') in match runStmtDual fuel' vgswitch $0 body with
-                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) , snd vg2), vlmid')
+                        | Some (waitAss 1 body) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 1), snd vgmid) in match runStmtDual fuel' vgswitch $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) $- sig_name , snd vg2), vlimd)
                             | None => None
                             end
-                        | Some (waitAss 2 body) => match runStmtDual fuel' vgmid' $0 body with
-                            | Some (vg2, vl2) => Some (vg2, vlmid')
+                        | Some (waitAss 2 body) => match runStmtDual fuel' vgmid $0 body with
+                            | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vlimd)
                             | None => None
                             end
-                        | _ => Some (vgmid', vlmid')
+                        | _ => Some (vgmid, vlimd)
                         end
                     | None => None
                     end
-                | None => match (fst vgmid) $? ("waiting_" ++ sig_name)%string with
+                | None => match (fst vg) $? sig_name with
                     (*Context switch if 1*)
-                    | Some (waitAss 1 body) => let vgswitch := ((fst vgmid) $+ (("current")%string, varAss 1), snd vgmid) in match runStmtDual fuel' vgswitch $0 body with
-                        | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) , snd vg2), vl)
+                    | Some (waitAss 1 body) => let vgswitch := ((fst vg) $+ (("current")%string, varAss 1), snd vg) in match runStmtDual fuel' vgswitch $0 body with
+                        | Some (vg2, vl2) => Some (((fst vg2) $+ (("current")%string, varAss 2) $- sig_name, snd vg2), vl)
                         | None => None
                         end
-                    | Some (waitAss 2 body) => match runStmtDual fuel' vgmid $0 body with
-                        | Some (vg2, vl2) => Some (vg2, vl)
+                    | Some (waitAss 2 body) => match runStmtDual fuel' vg $0 body with
+                        | Some (vg2, vl2) => Some (((fst vg2) $- sig_name, snd vg2), vl)
                         | None => None
                         end
-                    | _ => Some (vgmid, vl)
+                    | _ => Some (vg, vl)
                     end
                 | _ => None
                 end
