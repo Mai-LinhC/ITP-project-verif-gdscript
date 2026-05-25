@@ -45,15 +45,3 @@ Definition add {A B} `{Eqb A} (m : fmap A B) (k : A) (v : B) : fmap A B :=
 Notation "$0" := (empty _ _).
 Notation "m $+ ( k , v )" := (add m k v) (at level 50, left associativity).
 Infix "$?" := lookup (at level 50, no associativity).
-
-(* Same names / shapes as the Lab07Map lemmas your tactics rewrite with. *)
-Lemma lookup_empty {A B} `{Eqb A} (k : A) : (empty A B) $? k = None.
-Proof. reflexivity. Qed.
-
-Lemma lookup_add_eq {A B} `{Eqb A} (m : fmap A B) k1 k2 v :
-  k1 = k2 -> (m $+ (k1, v)) $? k2 = Some v.
-Proof. intros ->. simpl. rewrite eqb_refl. reflexivity. Qed.
-
-Lemma lookup_add_ne {A B} `{Eqb A} (m : fmap A B) k k' v :
-  k' <> k -> (m $+ (k, v)) $? k' = m $? k'.
-Proof. intro Hne. simpl. rewrite (eqb_neq Hne). reflexivity. Qed.

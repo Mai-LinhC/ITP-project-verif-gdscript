@@ -6,27 +6,7 @@ Open Scope string_scope.
 Open Scope expr.
 
 
-Ltac inv H := inversion H; subst; clear H.
 Ltac prover := try repeat eexists; try repeat split; cbv; try reflexivity.
-
-Ltac general_match := match goal with
-    | [|- _ -> _]  => intros
-    | [ H: exists _,  _ |-  _ ] => destruct H
-    | [ H: _ /\ _ |- _ ] => destruct H
-    | [ |- _ /\ _ ] => split
-    | [ H : _ \/ _ |- _ ] => destruct H
-    | [H: ?a = ?a |- _ ] => clear H
-    | [H: context[ (_)%nat] |- _ ] => cbv in H
-    end.
-
-
-Ltac existential_match := match goal with
-    | [ |- _ /\ _ ] => split
-    | [|- context[$0 $? _]] => rewrite lookup_empty
-    | [|- context[(_ $+ (?k, ?v)) $? ?k]] => rewrite lookup_add_eq by reflexivity
-    | [|- context[(_ $+ (?k1, ?v)) $? ?k2]] => rewrite lookup_add_ne by discriminate
-    | [|- _ ] => subst; vm_compute; eauto; try f_equal; try discriminate; try contradiction
-    end.
 
 
 Theorem runStmtVar :    

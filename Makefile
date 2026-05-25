@@ -3,9 +3,7 @@
 ROCQC=rocq compile
 
 rocq:
-# 	$(ROCQC) Lab07Map.v
 	$(ROCQC) CompMap.v
-	$(ROCQC) Lab07Language.v
 	$(ROCQC) GDS_Language.v
 	$(ROCQC) GDS_Testing.v
 
