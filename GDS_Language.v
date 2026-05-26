@@ -544,76 +544,101 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
         end
     end.
 
-(* Arguments runStmtDual _ _ _ _ : simpl never. *)
+Arguments runStmtDual _ _ _ _ : simpl never.
 
 
-Fixpoint runDual (fuel: nat) (ds : dual_state) (d: topLevelDecl * topLevelDecl) : option (dual_state) :=
+(*Init phase of a program: var declarations, method declarations and ready execution*)
+Fixpoint initProg (fuel: nat) (ds: dual_state) (d: topLevelDecl) : option (dual_state * option stmt) :=
     match fuel with
     | O => None
     | S fuel' => match current ds with
-        | 1 => match fst d with
+        | 1 => match d with
             | classVarDecl name e => match interp e (vgA ds) with
-                | Some n => Some ({|current := current ds; signal_state := signal_state ds; vgA := vgA ds $+ (name, varAss n); vgB := vgB ds |})
+                | Some n => Some ({|current := 1; signal_state := signal_state ds; vgA := vgA ds $+ (name, varAss n); vgB := vgB ds |}, None)
                 | None => None
                 end
-            | methodDecl name args ret body => Some ({|current := current ds; signal_state := signal_state ds; vgA := vgA ds $+ (name, methodAss args ret body); vgB := vgB ds |})
-            | readyDecl body => match (runStmtDual stmtFuel ds $0 body) with
-                | Some (ds2, vl2) => Some ds2
+            | methodDecl name args ret body => Some ({|current := 1; signal_state := signal_state ds; vgA := vgA ds $+ (name, methodAss args ret body); vgB := vgB ds |}, None)
+            | readyDecl body => match runStmtDual stmtFuel ds $0 body with
+                | Some (ds2, vl2) => Some (ds2, None)
                 | None => None
                 end
-            | processDecl bodyA => if (Nat.eqb fuel' 1) then Some ds else match snd d with
-                (*Run both processes one after the other until no fuel, in which case we return the last val*)
-                | processDecl bodyB => match runStmtDual stmtFuel ds $0 bodyA with
-                    | Some (dsmid, vlmid) => match runStmtDual stmtFuel {|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |} $0 bodyB with
-                        | Some (ds2, vl2) => runDual fuel' {|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |} d
-                        | None => None
-                        end
+            | processDecl body => Some (ds, Some body)
+            | SequenceDecl d1 d2 => match initProg fuel' ds d1 with
+                | Some (dsA, pA) => match initProg fuel' dsA d2 with
+                    | Some (dsB, pB) => Some (dsB, match pA with
+                        | Some bodyA => Some bodyA
+                        | None => pB
+                        end)
                     | None => None
                     end
-                (*B is over, but might still be waiting or have a function callback in a signal of A, runStmt prog A then rerun*)
-                | EndDecl => match runStmtDual stmtFuel ds $0 bodyA with
-                    | Some (dsmid, vlmid) => runDual fuel' dsmid d
-                    | None => None
-                    end
-                (*If B is not over but not process, switch and rerun*)
-                | _ => runDual fuel' {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} d
-                end
-            | SequenceDecl d1 d2 => match runDual fuel' ds (d1, snd d) with
-                | Some dsmid => runDual fuel' dsmid (d2, snd d)
                 | None => None
                 end
-            (*If B process, runStmt B then rerun. If B = endDecl, done. Else, just run B*)
-            | EndDecl => match snd d with
-                | processDecl bodyB => if (Nat.eqb fuel' 1) then Some ds
-                else match runStmtDual stmtFuel {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} $0 bodyB with
-                    | Some (ds2, vl2) => runDual fuel' {|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |} d
-                    | None => None
-                    end
-                | EndDecl => Some ds
-                | _ => runDual fuel' {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} d
-                end
+            | EndDecl => Some (ds, None)
             end
-        | 2 => match snd d with
+        | 2 => match d with
             | classVarDecl name e => match interp e (vgB ds) with
-                | Some n => Some ({|current := current ds; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, varAss n) |})
+                | Some n => Some ({|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, varAss n) |}, None)
                 | None => None
                 end
-            | methodDecl name args ret body => Some ({|current := current ds; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, methodAss args ret body) |})
-            | readyDecl body => match (runStmtDual stmtFuel ds $0 body) with
-                | Some (ds2, vl2) => Some ds2
+            | methodDecl name args ret body => Some ({|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, methodAss args ret body) |}, None)
+            | readyDecl body => match runStmtDual stmtFuel ds $0 body with
+                | Some (ds2, vl2) => Some (ds2, None)
                 | None => None
                 end
-            (*Switch and rerun*)
-            | processDecl _ => runDual fuel' {|current := 1; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} d
-            | SequenceDecl d1 d2 => match runDual fuel' ds (fst d, d1) with
-                | Some dsmid => runDual fuel' dsmid (fst d, d2)
+            | processDecl body => Some (ds, Some body)
+            | SequenceDecl d1 d2 => match initProg fuel' ds d1 with
+                | Some (dsA, pA) => match initProg fuel' dsA d2 with
+                    | Some (dsB, pB) => Some (dsB, match pA with
+                        | Some bodyA => Some bodyA
+                        | None => pB
+                        end)
+                    | None => None
+                    end
                 | None => None
                 end
-            (*Switch and rerun*)
-            | EndDecl => runDual fuel' {|current := 1; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} d
+            | EndDecl => Some (ds, None)
             end
         | _ => None
         end
-    end.    
+    end.
 
-(* Arguments runDual _ _ _ : simpl never. *)
+Arguments initProg _ _ _ : simpl never.
+
+Fixpoint runProcessesDual (fuel: nat) (ds: dual_state) (pA pB: option stmt) : option dual_state :=
+    match fuel with
+    | O => None
+    | S fuel' => if Nat.eqb fuel' 1 then Some ds else match pA, pB with
+        (*Run both processes one after the other until no fuel, in which case we return the last val*)
+        | Some bodyA, Some bodyB => match runStmtDual stmtFuel ds $0 bodyA with
+            | Some (dsmid, vlmid) => match runStmtDual stmtFuel {|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |} $0 bodyB with
+                | Some (ds2, vl2) => runProcessesDual fuel' {|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |} (Some bodyA) (Some bodyB)
+                | None => None
+                end
+            | None => None
+            end
+        (*If one process is None but the other isn't, we still want to run the other process until no fuel left*)
+        | Some bodyA, None => match runStmtDual stmtFuel ds $0 bodyA with
+            | Some (ds2, vl2) => runProcessesDual fuel' {|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |} (Some bodyA) None
+            | None => None
+            end
+        | None, Some bodyB => match runStmtDual stmtFuel {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} $0 bodyB with
+            | Some (ds2, vl2) => runProcessesDual fuel' {|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |} None (Some bodyB)
+            | None => None
+            end
+        (*If no processes, done*)
+        | None, None => Some ds
+        end
+    end.
+
+Arguments runProcessesDual _ _ _ _ : simpl never.
+
+Definition runDual (fuel: nat) (ds : dual_state) (d: topLevelDecl * topLevelDecl) : option (dual_state) :=
+    match initProg fuel ds (fst d) with
+    | Some (dsA, pA) => match initProg fuel ({|current := 2; signal_state := signal_state dsA; vgA := vgA dsA; vgB := vgB dsA |}) (snd d) with
+        | Some (dsB, pB) => runProcessesDual fuel {|current := 1; signal_state := signal_state dsB; vgA := vgA dsB; vgB := vgB dsB |} pA pB
+        | None => None
+        end
+    | None => None
+    end.
+
+Arguments runDual _ _ _ : simpl never.
