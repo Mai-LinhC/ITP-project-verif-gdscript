@@ -313,3 +313,48 @@ Theorem RunDualProgsAwaitSymmetric :
 Proof.
     prover.
 Qed.
+
+
+(*B awaits A, a emits signal and has callback to function of B*)
+Definition dA6 := (topVar "a" := Const 0 ;;;
+    processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 3)
+        then (emitSignalStmt "sigA" (Some ("func", 2)) (Const 8 :: nil))
+        else (skip)
+        done);;; EndDecl).
+
+Definition dB6 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
+    methodDecl "func" ("x" :: nil) None ("a" <- Var "x") ;;;
+    readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10)
+    ;;; EndDecl).
+
+Theorem RunDualProgsAwaitSymmetricCallback :
+    exists ds2, (runDual 14 defaultVal (dA6, dB6)
+    ) = Some ds2 
+    /\ (vgB ds2 $? "ret" = Some (varAss 10)) /\ (vgB ds2 $? "a" = Some (varAss 8)).
+Proof.
+    prover.
+Qed.
+
+
+(*Double await*)
+
+Definition dA7 := (topVar "a" := Const 0 ;;;
+    processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 3)
+        then (emitSignalStmt "sigA" None nil)
+        else (when (Var "a" == Const 5)
+        then (emitSignalStmt "sigA" None nil)
+        else skip done)
+        done);;; EndDecl).
+
+Definition dB7 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
+    readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10 ;; awaitStmt "sigA" ;; "a" <- Const 15 ;; skip) ;;; EndDecl).
+
+(*Normal that is doesn't work, because the second await is erased after the first emit is called*)
+Theorem RunDualProgsDoubleAwait :
+    exists ds2, (runDual 5 defaultVal (dA7, dB7)
+    ) = Some ds2 
+    /\ (vgB ds2 $? "ret" = Some (varAss 10)) /\ (vgB ds2 $? "a" = Some (varAss 15)).
+Proof.
+Admitted.
