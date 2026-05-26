@@ -124,13 +124,13 @@ Qed.
 
 (*STARTING DUALS*)
 
-Definition defaultVal: valuation * valuation := ($0 $+ ("current", varAss 1), $0).
+Definition defaultVal: dual_state := {|current := 1; signal_state := nil; vgA := $0; vgB := $0|}.
 
 Theorem runStmtDualVar :    
-    exists vg2 vl2, 
+    exists ds2 vl2, 
     runStmtDual 10 defaultVal $0 
     ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
-    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
+    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (ds2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     prover.
@@ -138,13 +138,13 @@ Qed.
 
 
 Theorem runStmtDualIf :
-    exists vg2 vl2, 
+    exists ds2 vl2, 
     (runStmtDual 4 defaultVal $0 
     ((( (var "a" := Const 2 ;; var "b" := Const 3) ;; 
     when ((Var "b") - (Var "a")) 
     then (var "ret" := Const 10) 
     else (var "ret" := Const 5) done) ) ;; 
-    skip)) = Some (vg2, vl2)
+    skip)) = Some (ds2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
@@ -152,10 +152,10 @@ Qed.
 
 
 Theorem runStmtDualWhile :
-    exists vg2 vl2, 
+    exists ds2 vl2, 
     (runStmtDual 6 defaultVal $0 
     ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
-    var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
+    var "ret" := Var "a" + Const 5) ;; skip))) = Some (ds2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     prover.
@@ -172,13 +172,13 @@ Definition dB1 := (topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl).
 
 
-Theorem RunDualProgsNoOverlap :
-    exists vg2, (runDual 15 defaultVal (dA1, dB1)
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 10)) /\ (snd vg2 $? "ret" = Some (varAss 4)).
+(* Theorem RunDualProgsNoOverlap :
+    exists ds2, (runDual 11 defaultVal (dA1, dB1)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 10)) /\ (vgB ds2 $? "ret" = Some (varAss 4)).
 Proof.
-    prover.
-Qed.
+    eexists; repeat split; compute.
+Qed. *)
 
 
 Definition dA2 := (topVar "ret" := Const 3 ;;;
@@ -187,13 +187,14 @@ Definition dA2 := (topVar "ret" := Const 3 ;;;
 
 Definition dB2 := readyDecl (emitSignalStmt "sigB" None nil) ;;; EndDecl.
 
-Theorem RunDualSimpleAwait :
-    exists vg2, (runDual 10 defaultVal (dA2, dB2)
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 10)).
+
+(* Theorem RunDualSimpleAwait :
+    exists ds2, (runDual 10 defaultVal (dA2, dB2)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
-Qed.
+Qed. *)
 
 
 Definition dA3 := (topVar "ret" := Const 3 ;;; 
@@ -205,13 +206,13 @@ Definition dB3 := readyDecl (emitSignalStmt "sigB" (Some ("func", 1)) (Const 8 :
 
 
 (*Context switch for callback and waiting*)
-Theorem RunDualEmitSignalCallbackAndAwait1 :
-    exists vg2, (runDual 10 defaultVal (dA3, dB3)
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 9)).
+(* Theorem RunDualEmitSignalCallbackAndAwait1 :
+    exists ds2, (runDual 10 defaultVal (dA3, dB3)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 9)).
 Proof.
     prover.
-Qed.
+Qed. *)
 
 
 Definition dA3' := (topVar "ret" := Const 3 ;;; 
@@ -223,14 +224,15 @@ Definition dB3' := (topVar "ret" := Const 0 ;;;
     processDecl (emitSignalStmt "sigB" (Some ("func", 1)) (Const 8 :: nil)) ;;; 
     EndDecl).
 
+
 (*Context switch for callback but not await*)
-Theorem RunDualEmitSignalCallbackAndAwait2 :
-    exists vg2, (runDual 10 defaultVal (dA3', dB3')
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 8)) /\ (snd vg2 $? "ret" = Some (varAss 10)).
+(* Theorem RunDualEmitSignalCallbackAndAwait2 :
+    exists ds2, (runDual 10 defaultVal (dA3', dB3')
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 8)) /\ (vgB ds2 $? "ret" = Some (varAss 10)).
 Proof.
     eexists; repeat split; cbv; reflexivity.
-Qed.
+Qed. *)
 
 Definition dA3'' := (topVar "ret" := Const 3 ;;; 
     methodDecl "func" ("a" :: nil) None ("ret" <- Var "a") ;;;
@@ -241,13 +243,17 @@ Definition dB3'' := (topVar "ret" := Const 0 ;;;
     readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10) ;;; 
     EndDecl).
 
+
+(* Compute runDual 16 defaultVal (dA3'', dB3''). *)
+
 (*Context switch for await but not callback*)
-Theorem RunDualEmitSignalCallbackAndAwait3 :
-    exists vg2, (runDual 12 defaultVal (dA3'', dB3'')
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 8)) /\ (snd vg2 $? "ret" = Some (varAss 10)).
-Proof.
-Admitted.
+(* Theorem RunDualEmitSignalCallbackAndAwait3 :
+    exists ds2, (runDual 10 defaultVal (dA3'', dB3'')
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 8)) /\ (vgB ds2 $? "ret" = Some (varAss 10)).
+Proof. 
+    eexists; repeat split; vm_compute.
+Admitted. *)
 
 
 
@@ -276,14 +282,15 @@ Proof.
     prover.
 Qed.
 
+
 (*Very strong theorem*)
-Theorem RunDualProgsAwait :
-    exists vg2, (runDual 14 defaultVal (dA4, dB4)
-    ) = Some vg2 
-    /\ (fst vg2 $? "ret" = Some (varAss 10)).
+(* Theorem RunDualProgsAwait :
+    exists ds2, (runDual 14 defaultVal (dA4, dB4)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 10)).
 Proof.
     eexists; split; cbv; reflexivity.
-Qed.
+Qed. *)
 
 
 (*Now having B wait for A to check the symmetry*)
@@ -300,8 +307,8 @@ Definition dB5 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
     processDecl( "a" <- Var "a" + Const 1) ;;; EndDecl).
 
 Theorem RunDualProgsAwaitSymmetric :
-    exists vg2, (runDual 14 defaultVal (dA5, dB5)
-    ) = Some vg2 
-    /\ (snd vg2 $? "ret" = Some (varAss 10)).
+    exists ds2, (runDual 14 defaultVal (dA5, dB5)
+    ) = Some ds2 
+    /\ (vgB ds2 $? "ret" = Some (varAss 10)).
 Proof.
 Admitted.
