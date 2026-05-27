@@ -352,9 +352,11 @@ Definition dB7 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
     readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10 ;; awaitStmt "sigA" ;; "a" <- Const 15 ;; skip) ;;; EndDecl).
 
 (*Normal that is doesn't work, because the second await is erased after the first emit is called*)
+(*TODO: erase the awaiting from valuation before executing the "awaiting body" instead of after. this should fix it*)
 Theorem RunDualProgsDoubleAwait :
-    exists ds2, (runDual 5 defaultVal (dA7, dB7)
+    exists ds2, (runDual 10 defaultVal (dA7, dB7)
     ) = Some ds2 
     /\ (vgB ds2 $? "ret" = Some (varAss 10)) /\ (vgB ds2 $? "a" = Some (varAss 15)).
 Proof.
-Admitted.
+    prover.
+Qed.
