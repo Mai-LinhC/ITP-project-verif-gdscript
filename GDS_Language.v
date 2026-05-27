@@ -159,11 +159,14 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
     | O => None
     | S fuel' =>
         match st with
-        (*Interp expression, then assign it in local val*)
-        | varDeclStmt name e => match interp2 e (vg ms) vl with
-                                | Some n => Some (ms, (vl $+ (name, varAss n)))
-                                | None => None
-                                end
+        (*if not already defined, interp expression, then assign it in local val*)
+        | varDeclStmt name e => match (vl $? name) with
+            | Some _ => None (*If name already defined in local, crash*)
+            | None => match interp2 e (vg ms) vl with
+                | Some n => Some (ms, vl $+ (name, varAss n))
+                | None => None
+                end
+            end
         (*If expr is >= 1, run s1, elsif 0 run s2, else crash*)
         | ifStmt e s1 s2 => match interp2 e (vg ms) vl with
                             | Some 0 => runStmt fuel' ms vl s2
@@ -271,10 +274,13 @@ Fixpoint run (fuel: nat) (ms: mono_state) (d: topLevelDecl) : option mono_state 
     | S fuel' =>
         match d with
         (*Same as for runStmt*)
-        | classVarDecl name e => match (interp e (vg ms)) with
-                                | Some n => Some ({|vg := (vg ms) $+ (name, varAss n); sig_state := sig_state ms|})
-                                | None => None
-                                end
+        | classVarDecl name e => match vg ms $? name with
+            | Some _ => None
+            | None => match interp2 e (vg ms) $0 with
+                | Some n => Some ({|vg := (vg ms) $+ (name, varAss n); sig_state := sig_state ms|})
+                | None => None
+                end
+            end
         (*Just add method to valuation*)
         | methodDecl name args ret body => Some ({|vg := (vg ms) $+ (name, methodAss args ret body); sig_state := sig_state ms|})
         (*Run the ready func once*)
@@ -311,9 +317,12 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
     | O => None
     | S fuel' => match current ds with
         | 1 => match st with
-            | varDeclStmt name e => match interp2 e (vgA ds) vl with
-                | Some n => Some (ds, vl $+ (name, varAss n))
-                | None => None
+            | varDeclStmt name e => match (vl $? name) with
+                | Some _ => None (*If name already defined in local, crash*)
+                | None => match interp2 e (vgA ds) vl with
+                    | Some n => Some (ds, vl $+ (name, varAss n))
+                    | None => None
+                    end
                 end
             | ifStmt e s1 s2 => match interp2 e (vgA ds) vl with
                 | Some 0 => runStmtDual fuel' ds vl s2
@@ -429,9 +438,12 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
             | skip => Some (ds, vl)
             end
         | 2 => match st with
-            | varDeclStmt name e => match interp2 e (vgB ds) vl with
-                | Some n => Some (ds, vl $+ (name, varAss n))
-                | None => None
+            | varDeclStmt name e => match (vl $? name) with
+                | Some _ => None (*If name already defined in local, crash*)
+                | None => match interp2 e (vgB ds) vl with
+                    | Some n => Some (ds, vl $+ (name, varAss n))
+                    | None => None
+                    end
                 end
             | ifStmt e s1 s2 => match interp2 e (vgB ds) vl with
                 | Some 0 => runStmtDual fuel' ds vl s2
@@ -558,9 +570,12 @@ Fixpoint initProg (fuel: nat) (ds: dual_state) (d: topLevelDecl) : option (dual_
     | O => None
     | S fuel' => match current ds with
         | 1 => match d with
-            | classVarDecl name e => match interp e (vgA ds) with
-                | Some n => Some ({|current := 1; signal_state := signal_state ds; vgA := vgA ds $+ (name, varAss n); vgB := vgB ds |}, None)
-                | None => None
+            | classVarDecl name e => match vgA ds $? name with
+                | Some _ => None (*If name already defined in global, crash*)
+                | None => match interp e (vgA ds) with
+                    | Some n => Some ({|current := 1; signal_state := signal_state ds; vgA := vgA ds $+ (name, varAss n); vgB := vgB ds |}, None)
+                    | None => None
+                    end
                 end
             | methodDecl name args ret body => Some ({|current := 1; signal_state := signal_state ds; vgA := vgA ds $+ (name, methodAss args ret body); vgB := vgB ds |}, None)
             | readyDecl body => match runStmtDual stmtFuel ds $0 body with
@@ -581,9 +596,12 @@ Fixpoint initProg (fuel: nat) (ds: dual_state) (d: topLevelDecl) : option (dual_
             | EndDecl => Some (ds, None)
             end
         | 2 => match d with
-            | classVarDecl name e => match interp e (vgB ds) with
-                | Some n => Some ({|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, varAss n) |}, None)
-                | None => None
+            | classVarDecl name e => match vgB ds $? name with
+                | Some _ => None (*If name already defined in global, crash*)
+                | None => match interp e (vgB ds) with
+                    | Some n => Some ({|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, varAss n) |}, None)
+                    | None => None
+                    end
                 end
             | methodDecl name args ret body => Some ({|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds $+ (name, methodAss args ret body) |}, None)
             | readyDecl body => match runStmtDual stmtFuel ds $0 body with
