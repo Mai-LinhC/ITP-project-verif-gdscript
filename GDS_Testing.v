@@ -8,13 +8,15 @@ Open Scope expr.
 
 Ltac prover := vm_compute; repeat eexists; repeat split; reflexivity.
 
+Definition defaultStateMono : mono_state := {|vg := $0; sig_state := nil|}.
+
 
 (*Using variable definitions and binary operations*)
 Theorem runStmtVar :    
-    exists vg2 vl2, 
-    runStmt 10 $0 $0 
+    exists ms2 vl2, 
+    runStmt 10 defaultStateMono $0 
     ((var "a" := Const 2) ;; (var "b" := Const 3) ;; 
-    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (vg2, vl2)
+    (var "ret" := ((Var "a") + (Var "b"))) ;; skip) = Some (ms2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     prover.
@@ -22,13 +24,13 @@ Qed.
 
 
 Theorem runStmtIf :
-    exists vg2 vl2, 
-    (runStmt 4 $0 $0 
+    exists ms2 vl2, 
+    (runStmt 4 defaultStateMono $0 
     ((( (var "a" := Const 2 ;; var "b" := Const 3) ;; 
     when ((Var "b") - (Var "a")) 
     then (var "ret" := Const 10) 
     else (var "ret" := Const 5) done) ) ;; 
-    skip)) = Some (vg2, vl2)
+    skip)) = Some (ms2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
@@ -36,10 +38,10 @@ Qed.
 
 
 Theorem runStmtWhile :
-    exists vg2 vl2, 
-    (runStmt 10 $0 $0 
+    exists ms2 vl2, 
+    (runStmt 10 defaultStateMono $0 
     ((((var "a" := Const 2 ;; while (Var "a") loop ("a" <- Var "a" - Const 1) done) ;; 
-    var "ret" := Var "a" + Const 5) ;; skip))) = Some (vg2, vl2)
+    var "ret" := Var "a" + Const 5) ;; skip))) = Some (ms2, vl2)
     /\ (vl2 $? "ret" = Some (varAss 5)).
 Proof.
     prover.
@@ -47,22 +49,22 @@ Qed.
 
 
 Theorem globalExe1 :
-    exists vg2, (run 5 $0 
+    exists ms2, (run 5 defaultStateMono 
     ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
-    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)) = Some vg2 
-    /\ (vg2 $? "ret" = Some (varAss 10)).
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil)) ;;; EndDecl)) = Some ms2 
+    /\ (vg ms2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
 Qed.
 
 
 Theorem globalExe2 :
-    exists vg2, (run 6 $0 
+    exists ms2, (run 6 defaultStateMono 
     (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
-    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)) = Some vg2 
-    /\ ((vg2 $? "ret" = Some (varAss 10))  /\ (vg2 $? "a" = Some (varAss 3))).
+    readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl)) = Some ms2 
+    /\ ((vg ms2 $? "ret" = Some (varAss 10))  /\ (vg ms2 $? "a" = Some (varAss 3))).
 Proof.
     prover.
 Qed.
@@ -70,10 +72,10 @@ Qed.
 
 (*New example existential_matching assignations*)
 Theorem globalExe3 :
-    exists vg2, (run 6 $0 
+    exists ms2, (run 6 defaultStateMono 
     ((topVar "a" := Const 3) ;;;
-    readyDecl ("a" <- Const 8 ;; skip) ;;; EndDecl)) = Some vg2 
-    /\ ((vg2 $? "a" = Some (varAss 8))).
+    readyDecl ("a" <- Const 8 ;; skip) ;;; EndDecl)) = Some ms2 
+    /\ ((vg ms2 $? "a" = Some (varAss 8))).
 Proof.
     prover.
 Qed.
@@ -81,21 +83,19 @@ Qed.
 
 
 Theorem runProcess :
-    exists v2, (run 15 $0 (
+    exists ms2, (run 15 defaultStateMono (
        (topVar "ret" := Const 0 ;;; processDecl(
         ((var "a" := Const 10 ;; "ret" <- Var "a") ;; skip)) ;;; 
         EndDecl) 
-    )) = Some v2
-    /\ (v2 $? "ret" = Some (varAss 10)).
+    )) = Some ms2
+    /\ (vg ms2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
 Qed.
 
 
-(* Warning: la preuve suivante risque d’être particulièrement longue *)
-(*Update, maintenant reflexivity prouve tout ptdr*)
 Theorem runSignal :
-     exists v2, run 15 $0 (  (* valeur de fuel choisie au pif, potentiellement ajuster pour que le théorème soit correct *)
+     exists ms2, run 15 defaultStateMono ( 
         topVar "a" := Const 0 ;;; topVar "ret" := Const 0 ;;;
         readyDecl("a" <- Const 1) ;;;
         processDecl( "a" <- Var "a" + Const 1 ;; 
@@ -103,19 +103,37 @@ Theorem runSignal :
         then (emitSignalStmt "sig" None nil)
         else (awaitStmt "sig" ;; "ret" <- Const 10)
         done)
-     ) = Some v2 
-    /\ (v2 $? "ret" = Some (varAss 10)).
+     ) = Some ms2
+    /\ (vg ms2 $? "ret" = Some (varAss 10)).
 Proof.
     prover.
 Qed.
 
 
 Theorem runSignalCallback :
-    exists v2, run 5 $0 (
+    exists ms2, run 5 defaultStateMono (
         (topVar "ret" := Const 0 ;;; methodDecl "callback" ("a"::"b"::nil) None ("ret" <- Var "b")) ;;;
         readyDecl(emitSignalStmt "sig" (Some ("callback", 1)) (Const 5 :: Const 10 :: nil))
-    ) = Some v2 
-    /\ (v2 $? "ret" = Some (varAss 10)).
+    ) = Some ms2 
+    /\ (vg ms2 $? "ret" = Some (varAss 10)).
+Proof.
+    prover.
+Qed.
+
+
+Theorem doubleAwaitMono :
+    exists ms2, run 20 defaultStateMono (
+        (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;; topVar "ret2" := Const 1 ;;;
+        readyDecl (awaitStmt "sig" ;; "ret" <- Const 10 ;; awaitStmt "sig" ;; "ret2" <- Const 5) ;;; 
+        processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 2)
+        then (emitSignalStmt "sig" None nil)
+        else (when (Var "a" == Const 5)
+        then (emitSignalStmt "sig" None nil)
+        else skip done)
+        done);;; EndDecl)
+    ) = Some ms2
+    /\ (vg ms2 $? "ret" = Some (varAss 10)) /\ (vg ms2 $? "ret2" = Some (varAss 5)).
 Proof.
     prover.
 Qed.
@@ -277,7 +295,7 @@ Definition dB4 := (topVar "a" := Const 0 ;;;
 
 (*When running alone, the first program does set ret to 5*)
 Lemma RunMonoAwaitForever :
-    exists vg2, (run 20 $0 dA4) = Some vg2 /\ vg2 $? "ret" = Some (varAss 5).
+    exists ms2, (run 20 defaultStateMono dA4) = Some ms2 /\ vg ms2 $? "ret" = Some (varAss 5).
 Proof.
     prover.
 Qed.
@@ -351,8 +369,7 @@ Definition dA7 := (topVar "a" := Const 0 ;;;
 Definition dB7 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 3 ;;;
     readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10 ;; awaitStmt "sigA" ;; "a" <- Const 15 ;; skip) ;;; EndDecl).
 
-(*Normal that is doesn't work, because the second await is erased after the first emit is called*)
-(*TODO: erase the awaiting from valuation before executing the "awaiting body" instead of after. this should fix it*)
+
 Theorem RunDualProgsDoubleAwait :
     exists ds2, (runDual 10 defaultVal (dA7, dB7)
     ) = Some ds2 

@@ -148,65 +148,70 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
         end
     end.
 
+Record mono_state := {
+    vg: valuation;
+    sig_state: valuation;
+}.
 
-Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option (valuation * valuation) :=
+
+Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option (mono_state * valuation) :=
     match fuel with
     | O => None
     | S fuel' =>
         match st with
         (*Interp expression, then assign it in local val*)
-        | varDeclStmt name e => match interp2 e vg vl with
-                                | Some n => Some (vg, (vl $+ (name, varAss n)))
+        | varDeclStmt name e => match interp2 e (vg ms) vl with
+                                | Some n => Some (ms, (vl $+ (name, varAss n)))
                                 | None => None
                                 end
         (*If expr is >= 1, run s1, elsif 0 run s2, else crash*)
-        | ifStmt e s1 s2 => match interp2 e vg vl with
-                            | Some 0 => runStmt fuel' vg vl s2
-                            | Some _n => runStmt fuel' vg vl s1
+        | ifStmt e s1 s2 => match interp2 e (vg ms) vl with
+                            | Some 0 => runStmt fuel' ms vl s2
+                            | Some _n => runStmt fuel' ms vl s1
                             | None => None
                             end
         (*While e <> 0, run s, else skip*)
-        | whileStmt e s => match interp2 e vg vl with
-                            | Some 0 => Some (vg, vl)
-                            | Some _n => match (runStmt fuel' vg vl s) with
-                                | Some (vgmid, vlmid) => runStmt fuel' vgmid vlmid st
+        | whileStmt e s => match interp2 e (vg ms) vl with
+                            | Some 0 => Some (ms, vl)
+                            | Some _n => match (runStmt fuel' ms vl s) with
+                                | Some (msmid, vlmid) => runStmt fuel' msmid vlmid st
                                 | None => None
                                 end
                             | None => None
                             end
         (*If name defined in local, reassign it with value of e, else do the same for global, else crash*)
         | assignmentStmt name e => match vl $? name with
-                                | Some _ => match interp2 e vg vl with
-                                    | Some n => Some (vg, (vl $+ (name, varAss n)))
+                                | Some _ => match interp2 e (vg ms) vl with
+                                    | Some n => Some (ms, (vl $+ (name, varAss n)))
                                     | None => None
                                     end
-                                | None => match vg $? name with
-                                    | Some _ => match interp2 e vg vl with
-                                        | Some n => Some (vg $+ (name, varAss n), vl)
+                                | None => match vg ms $? name with
+                                    | Some _ => match interp2 e (vg ms) vl with
+                                        | Some n => Some ({|vg:= vg ms $+ (name, varAss n); sig_state:= sig_state ms|}, vl)
                                         | None => None
                                         end
                                     | None => None
                                     end
                                 end
         (*Skip, await is checked in sequence, because await as last instruction does nothing anyways*)
-        | awaitStmt sig_name => Some (vg, vl)
+        | awaitStmt sig_name => Some (ms, vl)
         (*If s1 is await:
              add waiting s2 to global valuation then skip, 
         else just run s1 then s2*)
         | sequence s1 s2 => match s1 with
-            | awaitStmt sig_name => Some (vg $+ (sig_name, waitAss 1 s2), vl)
-            | _ => match runStmt fuel' vg vl s1 with
-                | Some (vgmid, vlmid) => runStmt fuel' vgmid vlmid s2
+            | awaitStmt sig_name => Some ({|vg:= vg ms; sig_state:= sig_state ms $+ (sig_name, waitAss 1 s2)|}, vl)
+            | _ => match runStmt fuel' ms vl s1 with
+                | Some (msmid, vlmid) => runStmt fuel' msmid vlmid s2
                 | None => None
                 end
             end
         (*Get method, match arguments to parameters. If we want to assign the return value, read it in the local var of the executed func, then assign it*)
-        | assignCallMethodStmt ret method_name args => match vg $? method_name with
+        | assignCallMethodStmt ret method_name args => match vg ms $? method_name with
             | Some (methodAss name_args found_ret found_body) => match 
-                (runStmt fuel' vg 
+                (runStmt fuel' ms
                 (fold_left 
                     (fun (acc: valuation) (arg_argname: expr * string) => 
-                        match interp2 (fst arg_argname) vg vl with
+                        match interp2 (fst arg_argname) (vg ms) vl with
                         | Some n => (acc $+ ((snd arg_argname), varAss n))
                         (*If we give an argument that isn't defined, it is not added to the valuation.
                         this might not be the correct behavior (would be better if the whole runStmt returned None. TODO: investigate)*)
@@ -215,18 +220,18 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
                     ) 
                     (combine args name_args) ($0)) 
                 found_body) with
-                | Some (vgmid, vlmid) => match ret, found_ret with
+                | Some (msmid, vlmid) => match ret, found_ret with
                     | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
-                        | Some r => match runStmt fuel' vgmid vl (assignmentStmt s_ret (Const r)) with
-                            | Some (vg2, vl2) => Some (vg2, vl2)
-                            | None => Some (vgmid, vl $+ (s_ret, varAss r))
+                        | Some r => match runStmt fuel' msmid vl (assignmentStmt s_ret (Const r)) with
+                            | Some (ms2, vl2) => Some (ms2, vl2)
+                            | None => Some (msmid, vl $+ (s_ret, varAss r))
                             end
                         | None => None 
                         end
                     (*Assigning void to a var*)
                     | Some _, None => None
                     (*Not reading the return of a non-void func*)
-                    | None, _ => Some (vgmid, vl)
+                    | None, _ => Some (msmid, vl)
                     end
                 | None => None
                 end
@@ -234,23 +239,23 @@ Fixpoint runStmt (fuel: nat) (vg: valuation) (vl: valuation) (st: stmt): option 
             end
         (*Check for callback (if exists, call this function with args of signal), then check for awaiting body (if exists, call this function)*)
         | emitSignalStmt sig_name opt_callback args => match opt_callback with
-            | Some (f, _n) => match runStmt fuel' vg vl (assignCallMethodStmt None f args) with
-                | Some (vgmid, vlmid) => match vgmid $? sig_name with
+            | Some (f, _n) => match runStmt fuel' ms vl (assignCallMethodStmt None f args) with
+                | Some (msmid, vlmid) => match (sig_state msmid) $? sig_name with
                     (*Here we do a mini context switch for the local val*)
-                    | Some (waitAss _ body) => match runStmt fuel' vgmid $0 body with
-                        | Some (vg2, vl2) => Some (vg2 $- sig_name, vlmid)
+                    | Some (waitAss _ body) => match runStmt fuel' {|vg:= vg msmid; sig_state:= sig_state msmid $- sig_name|} $0 body with
+                        | Some (ms2, vl2) => Some (ms2, vlmid)
                         | None => None
                         end
-                    | _ => Some (vgmid, vlmid)
+                    | _ => Some (msmid, vlmid)
                     end
                 | None => None
                 end
-            | None => match vg $? sig_name with
-                | Some (waitAss _ body) => runStmt fuel' vg vl body
-                | _ => Some (vg, vl)
+            | None => match sig_state ms $? sig_name with
+                | Some (waitAss _ body) => runStmt fuel' ms vl body
+                | _ => Some (ms, vl)
                 end
             end
-        | skip => Some (vg, vl)
+        | skip => Some (ms, vl)
         end
     end.
 
@@ -260,34 +265,34 @@ Arguments runStmt _ _ _ _ : simpl never.
 Definition stmtFuel := 20.
 
 
-Fixpoint run (fuel: nat) (v: valuation) (d: topLevelDecl) : option valuation :=
+Fixpoint run (fuel: nat) (ms: mono_state) (d: topLevelDecl) : option mono_state :=
     match fuel with
     | O => None
     | S fuel' =>
         match d with
         (*Same as for runStmt*)
-        | classVarDecl name e => match (interp e v) with
-                                | Some n => Some (v $+ (name, varAss n))
+        | classVarDecl name e => match (interp e (vg ms)) with
+                                | Some n => Some ({|vg := (vg ms) $+ (name, varAss n); sig_state := sig_state ms|})
                                 | None => None
                                 end
         (*Just add method to valuation*)
-        | methodDecl name args ret body => Some (v $+ (name, methodAss args ret body))
+        | methodDecl name args ret body => Some ({|vg := (vg ms) $+ (name, methodAss args ret body); sig_state := sig_state ms|})
         (*Run the ready func once*)
-        | readyDecl body => match (runStmt stmtFuel v ($0) body) with
-            | Some (vg2, vl2) => Some vg2
+        | readyDecl body => match (runStmt stmtFuel ms ($0) body) with
+            | Some (ms2, vl2) => Some ms2
             | None => None
             end
         (*Run until no fuel remaining*)
-        | processDecl body => if (Nat.eqb fuel' 1) then Some v else match runStmt stmtFuel v $0 body with
-            | Some (vgmid, vlmid) => run fuel' vgmid d
+        | processDecl body => if (Nat.eqb fuel' 1) then Some ms else match runStmt stmtFuel ms $0 body with
+            | Some (msmid, vlmid) => run fuel' msmid d
             | None => None
             end
         (*Run d1 then d2*)
-        | SequenceDecl d1 d2 => match run fuel' v d1 with
+        | SequenceDecl d1 d2 => match run fuel' ms d1 with
             | Some vmid => run fuel' vmid d2
             | None => None
             end
-        | EndDecl => Some v
+        | EndDecl => Some ms
         end
     end.
 
