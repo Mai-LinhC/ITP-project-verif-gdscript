@@ -360,3 +360,24 @@ Theorem RunDualProgsDoubleAwait :
 Proof.
     prover.
 Qed.
+
+
+Definition dA3OOO := (
+    processDecl (emitSignalStmt "sigA" (Some ("func", 1)) (Const 8 :: nil)) ;;;
+    topVar "ret" := Const 3 ;;; 
+    methodDecl "func" ("a" :: nil) None ("ret" <- Var "a") ;;; 
+    EndDecl).
+
+Definition dB3OOO := (
+    readyDecl (awaitStmt "sigA" ;; "ret" <- Const 10) ;;;
+    topVar "ret" := Const 0 ;;; 
+    EndDecl).
+
+(*Context switch for await but not callback*)
+Theorem OutOfOrderRunDualEmitSignalCallbackAndAwait3 :
+    exists ds2, (runDual 10 defaultVal (dA3OOO, dB3OOO)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 8)) /\ (vgB ds2 $? "ret" = Some (varAss 10)).
+Proof. 
+    prover.
+Qed.
