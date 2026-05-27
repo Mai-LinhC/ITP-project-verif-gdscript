@@ -139,6 +139,21 @@ Proof.
 Qed.
 
 
+Theorem awaitInProcess : 
+    exists ms2, run 20 defaultStateMono (
+        (topVar "a" := Const 0 ;;; topVar "b" := Const 0 ;;;
+        processDecl( "b" <- Var "b" + Const 1 ;; 
+        when (Var "b" == Const 4)
+        then (emitSignalStmt "sig" None nil)
+        else (awaitStmt "sig" ;; "a" <- Var "a" + Const 1)
+        done);;; EndDecl)
+    ) = Some ms2
+    /\ (vg ms2 $? "a" = Some (varAss 3)).
+    Proof.
+        prover.
+    Qed.
+
+
 
 (*STARTING DUALS*)
 
@@ -396,5 +411,30 @@ Theorem OutOfOrderRunDualEmitSignalCallbackAndAwait3 :
     ) = Some ds2 
     /\ (vgA ds2 $? "ret" = Some (varAss 8)) /\ (vgB ds2 $? "ret" = Some (varAss 10)).
 Proof. 
+    prover.
+Qed.
+
+
+(*Awaiting in both processes*)
+
+Definition dA8 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 0 ;;;
+    processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 3)
+        then (emitSignalStmt "sigA" None nil)
+        else (awaitStmt "sigB" ;; "ret" <- Var "ret" + Const 1)
+        done);;; EndDecl).
+
+Definition dB8 := (topVar "a" := Const 0 ;;; topVar "ret" := Const 0 ;;;
+    processDecl( "a" <- Var "a" + Const 1 ;; 
+        when (Var "a" == Const 4)
+        then (emitSignalStmt "sigB" None nil)
+        else (awaitStmt "sigA" ;; "ret" <- Var "ret" + Const 1)
+        done);;; EndDecl).
+
+Theorem RunDualProgsDoubleAwaitSymmetric :
+    exists ds2, (runDual 20 defaultVal (dA8, dB8)
+    ) = Some ds2 
+    /\ (vgA ds2 $? "ret" = Some (varAss 3)) /\ (vgB ds2 $? "ret" = Some (varAss 2)).
+Proof.
     prover.
 Qed.

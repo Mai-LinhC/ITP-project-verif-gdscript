@@ -63,10 +63,15 @@ Inductive topLevelDecl :=
 Inductive assignment :=
  | varAss (n: nat)
  | methodAss (args: list string) (ret: option string) (body: stmt)
- | waitAss (pn: nat) (body: stmt)
+ (* | waitAss (pn: nat) (body: stmt) *)
 .
 
+Inductive waiting :=
+| waitAss (pn: nat) (body: stmt).
+
 Definition valuation := fmap string assignment.
+
+Definition waitings := fifo_map string waiting.
 
 Notation "'topVar' x := e":= (classVarDecl x e) (at level 75).
 (* Notation "'const' x = e" := (constDecl x e)(at level 75). *)
@@ -111,8 +116,7 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
     | Var x => match v $? x with Some a =>
             match a with
             | varAss n => Some n
-            | methodAss args ret body => None
-            | waitAss n st => None
+            | _ => None
             end
     | None => None end
     | Binop b e1 e2 => match (interp e1 v), (interp e2 v) with
@@ -129,15 +133,13 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
         | Some a =>
             match a with
             | varAss n => Some n
-            | methodAss args ret body => None
-            | waitAss n st => None
+            | _ => None
             end
         | None => match vg $? x with 
             | Some a =>
                 match a with
                 | varAss n => Some n
-                | methodAss args ret body => None
-                | waitAss n st => None
+                | _ => None
                 end
             | None => None
             end
@@ -150,7 +152,7 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
 
 Record mono_state := {
     vg: valuation;
-    sig_state: valuation;
+    sig_state: waitings;
 }.
 
 
@@ -202,7 +204,7 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
              add waiting s2 to global valuation then skip, 
         else just run s1 then s2*)
         | sequence s1 s2 => match s1 with
-            | awaitStmt sig_name => Some ({|vg:= vg ms; sig_state:= sig_state ms $+ (sig_name, waitAss 1 s2)|}, vl)
+            | awaitStmt sig_name => Some ({|vg:= vg ms; sig_state:= sig_state ms $F+ (sig_name, waitAss 1 s2)|}, vl)
             | _ => match runStmt fuel' ms vl s1 with
                 | Some (msmid, vlmid) => runStmt fuel' msmid vlmid s2
                 | None => None
@@ -243,19 +245,35 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
         (*Check for callback (if exists, call this function with args of signal), then check for awaiting body (if exists, call this function)*)
         | emitSignalStmt sig_name opt_callback args => match opt_callback with
             | Some (f, _n) => match runStmt fuel' ms vl (assignCallMethodStmt None f args) with
-                | Some (msmid, vlmid) => match (sig_state msmid) $? sig_name with
-                    (*Here we do a mini context switch for the local val*)
-                    | Some (waitAss _ body) => match runStmt fuel' {|vg:= vg msmid; sig_state:= sig_state msmid $- sig_name|} $0 body with
-                        | Some (ms2, vl2) => Some (ms2, vlmid)
-                        | None => None
-                        end
-                    | _ => Some (msmid, vlmid)
+                | Some (msmid, vlmid) => match (sig_state msmid) $F? sig_name with
+                    | nil => Some (msmid, vlmid)
+                    | l => fold_left
+                        (fun (acc : option (mono_state * valuation)) (w : waiting) =>
+                            match acc, w with
+                            | Some (ms_acc, vl_acc), waitAss _ body =>
+                                match runStmt fuel' {| vg := vg ms_acc; sig_state := sig_state ms_acc $F- sig_name |} $0 body with
+                                    | Some (ms2, _vl2) => Some (ms2, vl_acc)
+                                    | None => None
+                                    end
+                            | None, _ => None
+                            end)
+                        l (Some (msmid, vlmid))
                     end
                 | None => None
                 end
-            | None => match sig_state ms $? sig_name with
-                | Some (waitAss _ body) => runStmt fuel' ms vl body
-                | _ => Some (ms, vl)
+            | None => match (sig_state ms) $F? sig_name with
+                | nil => Some (ms, vl)
+                | l => fold_left
+                        (fun (acc : option (mono_state * valuation)) (w : waiting) =>
+                            match acc, w with
+                            | Some (ms_acc, vl_acc), waitAss _ body =>
+                                match runStmt fuel' {| vg := vg ms_acc; sig_state := sig_state ms_acc $F- sig_name |} $0 body with
+                                    | Some (ms2, _vl2) => Some (ms2, vl_acc)
+                                    | None => None
+                                    end
+                            | None, _ => None
+                            end)
+                        l (Some (ms, vl))
                 end
             end
         | skip => Some (ms, vl)
@@ -306,7 +324,7 @@ Arguments run _ _ _  : simpl never.
 
 Record dual_state := {
   current : nat;
-  signal_state : valuation;
+  signal_state : waitings;
   vgA : valuation;
   vgB: valuation;
 }.
@@ -352,7 +370,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                 end
             | await sig_name => Some (ds, vl)
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => Some ({| current := current ds; signal_state := signal_state ds $+ (sig_name, waitAss 1 s2); vgA := vgA ds; vgB := vgB ds |}, vl)
+                | awaitStmt sig_name => Some ({| current := current ds; signal_state := signal_state ds $F+ (sig_name, waitAss 1 s2); vgA := vgA ds; vgB := vgB ds |}, vl)
                 | _ => match runStmtDual fuel' ds vl s1 with
                     | Some (dsmid, vlmid) => runStmtDual fuel' dsmid vlmid s2
                     | None => None
@@ -389,49 +407,68 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
             (*Context switch if n = 2*)
                 | Some (f, 1) => match runStmtDual fuel' ds vl (assignCallMethodStmt None f args) with
                     (*Check for waiting bodies*)
-                    | Some (dsmid, vlmid) => match (signal_state dsmid) $? sig_name with
-                        (*Context switch if 2*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlmid)
-                            | None => None
-                            end
-                        (*Double checking: here we want to set current to 2, call body with an empty local val, set current to 1 again and return that new global val with the old local one*)
-                        | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlmid)
-                            | None => None
-                            end
-                        | _ => Some (dsmid, vlmid)
+                    | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
+                        | nil => Some (dsmid, vlmid)
+                        | l => fold_left
+                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                match acc, w with
+                                | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | _, _ => None
+                                end)
+                            l (Some (dsmid, vlmid))
                         end
                     | None => None
                     end
-                (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
                 | Some (f, 2) => match runStmtDual fuel' {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlmid) => match (signal_state dsmid) $? sig_name with
-                        (*Already switched, so stay in current if 2 or switch back if 1*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlmid)
-                            | None => None
-                            end
-                        | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlmid)
-                            | None => None
-                            end
-                        (*Switch back*)
-                        | _ => Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid)
+                    | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
+                        (*Switch back if no waiting*)
+                        | nil => Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid)
+                        | l => fold_left
+                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                match acc, w with
+                                | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | _, _ => None
+                                end)
+                            l (Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid))
                         end
                     | None => None
                     end
-                | None => match (signal_state ds) $? sig_name with
-                    (*Context switch if 2*)
-                    | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state ds $- sig_name; vgA := vgA ds; vgB := vgB ds |} $0 body with
-                        | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl)
-                        | None => None
-                        end
-                    | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state ds $- sig_name; vgA := vgA ds; vgB := vgB ds |} $0 body with
-                        | Some (ds2, vl2) => Some ({|current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl)
-                        | None => None
-                        end
-                    | _ => Some (ds, vl)
+                | None => match (signal_state ds) $F? sig_name with
+                    | nil => Some (ds, vl)
+                    | l => fold_left
+                        (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                            match acc, w with
+                            | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                    | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                    | None => None
+                                    end
+                            | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                    | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                    | None => None
+                                    end
+                            | _, _ => None
+                            end)
+                        l (Some (ds, vl))
                     end
                 | _ => None
                 end
@@ -473,7 +510,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                 end
             | await sig_name => Some (ds, vl)
             | sequence s1 s2 => match s1 with
-                | awaitStmt sig_name => Some ({|current := current ds; signal_state := signal_state ds $+ (sig_name, waitAss 2 s2); vgA := vgA ds; vgB := vgB ds |}, vl)
+                | awaitStmt sig_name => Some ({|current := current ds; signal_state := signal_state ds $F+ (sig_name, waitAss 2 s2); vgA := vgA ds; vgB := vgB ds |}, vl)
                 | _ => match runStmtDual fuel' ds vl s1 with
                     | Some (dsmid, vlmid) => runStmtDual fuel' dsmid vlmid s2
                     | None => None
@@ -510,48 +547,67 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
             (*Context switch if n = 1*)
                 (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
                 | Some (f, 1) => match runStmtDual fuel' {|current := 1; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlimd) => match (signal_state dsmid) $? sig_name with
-                        (*Already switched, so stay in current if 1 or switch back if 2*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlimd)
-                            | None => None
-                            end
-                        | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlimd)
-                            | None => None
-                            end
-                        (*Switch back*)
-                        | _ => Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd)
+                    | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
+                        | nil => Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd)
+                        | l => fold_left
+                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                match acc, w with
+                                | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | _, _ => None
+                                end)
+                            l (Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd))
                         end
                     | None => None
                     end
                 | Some (f, 2) => match runStmtDual fuel' ds vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlimd) => match (signal_state dsmid) $? sig_name with
-                        (*Context switch if 1*)
-                        (*Double checking: here we want to set current to 1, call body with an empty local val, set current to 2 again and return that new global val with the old local one*)
-                        | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlimd)
-                            | None => None
-                            end
-                        | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state dsmid $- sig_name; vgA := vgA dsmid; vgB := vgB dsmid |} $0 body with
-                            | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vlimd)
-                            | None => None
-                            end
-                        | _ => Some (dsmid, vlimd)
+                    | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
+                        | nil => Some (dsmid, vlimd)
+                        | l => fold_left
+                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                match acc, w with
+                                | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                        | None => None
+                                        end
+                                | _, _ => None
+                                end)
+                            l (Some (dsmid, vlimd))
                         end
                     | None => None
                     end
-                | None => match (signal_state ds) $? sig_name with
-                    (*Context switch if 1*)
-                    | Some (waitAss 1 body) => match runStmtDual fuel' {|current := 1; signal_state := signal_state ds $- sig_name; vgA := vgA ds; vgB := vgB ds |} $0 body with
-                        | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl)
-                        | None => None
-                        end
-                    | Some (waitAss 2 body) => match runStmtDual fuel' {|current := 2; signal_state := signal_state ds $- sig_name; vgA := vgA ds; vgB := vgB ds |} $0 body with
-                        | Some (ds2, vl2) => Some ({|current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl)
-                        | None => None
-                        end
-                    | _ => Some (ds, vl)
+                | None => match (signal_state ds) $F? sig_name with
+                    | nil => Some (ds, vl)
+                    | l => fold_left
+                        (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                            match acc, w with
+                            | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                    | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                    | None => None
+                                    end
+                            | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                    | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                    | None => None
+                                    end
+                            | _, _ => None
+                            end)
+                        l (Some (ds, vl))
                     end
                 | _ => None
                 end

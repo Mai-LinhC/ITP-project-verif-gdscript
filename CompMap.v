@@ -77,3 +77,46 @@ Proof.
       * exact IH.
 Qed.
 
+Definition set {A B} `{Eqb A} (m : fmap A B) (k : A) (v : B) : fmap A B :=
+  (k, v) :: (m $- k).
+
+Definition fifo_map (A B : Type) := fmap A (list B).
+
+Definition fifo_empty (A B : Type) : fifo_map A B := [].
+
+Definition fifo_lookup {A B} `{Eqb A}
+  (m : fifo_map A B) (k : A) : list B :=
+  match m $? k with
+  | Some xs => xs
+  | None => []
+  end.
+
+Definition fifo_set {A B} `{Eqb A}
+  (m : fifo_map A B) (k : A) (xs : list B) : fifo_map A B :=
+  set m k xs.
+
+Definition fifo_add {A B} `{Eqb A}
+  (m : fifo_map A B) (k : A) (v : B) : fifo_map A B :=
+  fifo_set m k (fifo_lookup m k ++ [v]).
+
+Definition fifo_delete {A B} `{Eqb A}
+  (m : fifo_map A B) (k : A) : fifo_map A B :=
+  match fifo_lookup m k with
+  | [] => m $- k
+  | _ :: [] => m $- k
+  | _ :: xs => fifo_set m k xs
+  end.
+
+Notation "$F0" := (fifo_empty _ _).
+
+Notation "m $F+ ( k , v )" :=
+  (fifo_add m k v)
+  (at level 50, left associativity).
+
+Notation "m $F? k" :=
+  (fifo_lookup m k)
+  (at level 50, no associativity).
+
+Notation "m $F- k" :=
+  (fifo_delete m k)
+  (at level 50, left associativity).
