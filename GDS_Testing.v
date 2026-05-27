@@ -438,3 +438,42 @@ Theorem RunDualProgsDoubleAwaitSymmetric :
 Proof.
     prover.
 Qed.
+
+
+
+(*Tests that non-compiling programs return None*)
+
+(*Declaring the same TopVar twice*)
+Theorem NonCompilingProgram1 :
+    run 10 defaultStateMono (topVar "a" := Const 0 ;;; topVar "a" := Const 1 ;;; EndDecl) = None.
+    Proof.
+        prover.
+    Qed.
+
+(*Declaring the same local var twice*)
+Theorem NonCompilingProgram2 :
+    run 10 defaultStateMono (topVar "a" := Const 0 ;;; readyDecl (var "a" := Const 1 ;; var "a" := Const 2) ;;; EndDecl) = None.
+    Proof.
+        prover.
+    Qed.
+
+(*Reassigning a non-existent variable*)
+Theorem NonCompilingProgram3 :
+    run 10 defaultStateMono (readyDecl ("b" <- Const 1) ;;; EndDecl) = None.
+    Proof.
+        prover.
+    Qed.
+
+(*Calling a method that is not declared*)
+Theorem NonCompilingProgram4 :
+    run 10 defaultStateMono (topVar "a" := Const 0 ;;; readyDecl (assignCallMethodStmt None "func" (Const 1 :: nil)) ;;; EndDecl) = None.
+    Proof.
+        prover.
+    Qed.
+
+(*Accessing a non-existent variable*)
+Theorem NonCompilingProgram5 :
+    run 10 defaultStateMono (topVar "a" := Const 0 ;;; topVar "b" := Var "x" ;;; EndDecl) = None.
+    Proof.
+        prover.
+    Qed.
