@@ -477,3 +477,16 @@ Theorem NonCompilingProgram5 :
     Proof.
         prover.
     Qed.
+
+
+(*Nouvelle idée de théorème, runMono = RunDual with EndDecl*)
+Theorem RunMonoEqualsRunDualEnd : 
+    forall fuel d ms2, run fuel defaultStateMono d = Some ms2 -> exists fuel' ds2, (runDual fuel' defaultVal (d, EndDecl)) = Some ds2 /\ vgA ds2 = vg ms2.
+Proof.
+Admitted.
+              
+
+Theorem RunDualSymmetric :
+    forall fuel d ms21, runDual fuel defaultVal (d, EndDecl) = Some ms21 -> exists ms22, runDual fuel defaultVal (EndDecl, d) = Some ms22 /\ vgA ms21 = vgB ms22.
+Proof.
+Admitted.
