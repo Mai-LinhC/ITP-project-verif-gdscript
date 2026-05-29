@@ -22,17 +22,9 @@ Inductive expr :=
 Inductive stmt :=
     | varDeclStmt: string -> expr -> stmt 
     | ifStmt: expr -> stmt -> stmt -> stmt
-    (* | forStmt *)
     | whileStmt: expr -> stmt -> stmt
-    (*TODO | matchStmt *)
-    (* | flowStmt *)
     | assignmentStmt: string -> expr -> stmt
-    (* | exprStmt *)
-    (* | assertStmt *)
     | awaitStmt: string -> stmt
-    (* | preloadStmt *)
-    (* | "breakpoint" stmtEnd *)
-    (* | "pass" stmtEnd *)
     | sequence: stmt -> stmt -> stmt
 
     (* optional return variable name, method name, args *)
@@ -45,26 +37,20 @@ Inductive stmt :=
 
 Inductive topLevelDecl :=
     | classVarDecl: string -> expr -> topLevelDecl
-    (* | constDecl: string -> expr -> topLevelDecl *)
-    (* | signalDecl: string -> list string -> topLevelDecl removed because useless*)
-    (* | enumDecl *)
+    (* | constDecl: string -> expr -> topLevelDecl easy to add but useless for our project*)
+    (* | signalDecl: string -> list string -> topLevelDecl : removed because we handle signals differently
+    could be interesting to add in the future to better match Godot's way of doing it*)
     
     (* method name, arguments, optional return name, body *)
     | methodDecl: string -> list string -> option string -> stmt -> topLevelDecl
     | readyDecl: stmt -> topLevelDecl
     | processDecl: stmt -> topLevelDecl 
-    (* | constructorDecl *)
-    (* | innerClass *)
-    (* | "tool" *)
     | SequenceDecl: topLevelDecl -> topLevelDecl -> topLevelDecl
-    | EndDecl: topLevelDecl
-.
+    | EndDecl: topLevelDecl.
 
 Inductive assignment :=
  | varAss (n: nat)
- | methodAss (args: list string) (ret: option string) (body: stmt)
- (* | waitAss (pn: nat) (body: stmt) *)
-.
+ | methodAss (args: list string) (ret: option string) (body: stmt).
 
 Inductive waiting :=
 | waitAss (pn: nat) (body: stmt).
@@ -125,7 +111,7 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
         end
      end.
 
-
+    (*Interp in local then global*)
   Fixpoint interp2 (e: expr) (vg: valuation) (vl: valuation) {struct e}: option nat :=
     match e with
     | Const n => Some n
@@ -151,10 +137,11 @@ Fixpoint interp (e: expr) (v: valuation) {struct e}: option nat :=
     end.
 
 Record mono_state := {
-    vg: valuation;
-    sig_state: waitings;
+    vg: valuation; (*Global valuation of the node*)
+    sig_state: waitings; (*Map from signal name to list of waiting bodies*)
 }.
 
+(*Creates a valuation that binds the argument names to the value of the arguments in the input valuations*)
 Definition unifyArgs (vg vl: valuation) (args: list expr) (name_args: list string) : option valuation :=
 (fold_left
     (fun (opt_acc: option valuation) (arg_argname: expr * string) =>
@@ -169,6 +156,7 @@ Definition unifyArgs (vg vl: valuation) (args: list expr) (name_args: list strin
     ) (combine args name_args) (Some $0)).
 
 
+(*Used to evaluate arguments with the correct valuation before passing them to a function*)
 Definition evalArgs (vg vl: valuation) (args: list expr) : option (list expr) :=
     (fold_right
         (fun (e: expr) (opt_acc: option (list expr)) => match opt_acc with
@@ -194,13 +182,13 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
                 | None => None
                 end
             end
-        (*If expr is >= 1, run s1, elsif 0 run s2, else crash*)
+        (* If expr is >= 1 then run s1 else if expr is 0 then run s2 else crash *)
         | ifStmt e s1 s2 => match interp2 e (vg ms) vl with
                             | Some 0 => runStmt fuel' ms vl s2
                             | Some _n => runStmt fuel' ms vl s1
                             | None => None
                             end
-        (*While e <> 0, run s, else skip*)
+        (* While e <> 0, run s, else skip *)
         | whileStmt e s => match interp2 e (vg ms) vl with
                             | Some 0 => Some (ms, vl)
                             | Some _n => match (runStmt fuel' ms vl s) with
@@ -209,7 +197,7 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
                                 end
                             | None => None
                             end
-        (*If name defined in local, reassign it with value of e, else do the same for global, else crash*)
+        (*If name defined in local, reassign it with value of e, else do the same for global, else crash *)
         | assignmentStmt name e => match vl $? name with
                                 | Some _ => match interp2 e (vg ms) vl with
                                     | Some n => Some (ms, (vl $+ (name, varAss n)))
@@ -226,7 +214,7 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
         (*Skip, await is checked in sequence, because await as last instruction does nothing anyways*)
         | awaitStmt sig_name => Some (ms, vl)
         (*If s1 is await:
-             add waiting s2 to global valuation then skip, 
+             add (waiting s2) to global valuation then skip, 
         else just run s1 then s2*)
         | sequence s1 s2 => match s1 with
             | awaitStmt sig_name => Some ({|vg:= vg ms; sig_state:= sig_state ms $F+ (sig_name, waitAss 1 s2)|}, vl)
@@ -258,11 +246,12 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
                 end
             | _ => None
             end
-        (*Check for callback (if exists, call this function with args of signal), then check for awaiting body (if exists, call this function)*)
+        (*Check for callback (if exists, call this function with args of signal), then check for awaiting bodies (if exist, run them then resume)*)
         | emitSignalStmt sig_name opt_callback args => match opt_callback with
             | Some (f, _n) => match runStmt fuel' ms vl (assignCallMethodStmt None f args) with
                 | Some (msmid, vlmid) => match (sig_state msmid) $F? sig_name with
                     | nil => Some (msmid, vlmid)
+                    (*Run every waiting body in order*)
                     | l => fold_left
                         (fun (acc : option (mono_state * valuation)) (w : waiting) =>
                             match acc, w with
@@ -299,9 +288,12 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
 Arguments runStmt _ _ _ _ : simpl never.
 
 
-Definition stmtFuel := 20.
+Definition stmtFuel := 20. (*NB: This value should be big enough to run every statement we use in proofs. Otherwise increase it*)
 
 
+(*NB: This function assumes the input program has its (optional) process function defined at the end. 
+runDual fixes this assumption. It would be relatively easy to fix here as well but we didn't do it because runDual with EndDecl as program 2 
+is already equivalent to this fixpoint*)
 Fixpoint run (fuel: nat) (ms: mono_state) (d: topLevelDecl) : option mono_state :=
     match fuel with
     | O => None
@@ -339,10 +331,10 @@ Fixpoint run (fuel: nat) (ms: mono_state) (d: topLevelDecl) : option mono_state 
 Arguments run _ _ _  : simpl never.
 
 Record dual_state := {
-  current : nat;
-  signal_state : waitings;
-  vgA : valuation;
-  vgB: valuation;
+  current : nat; (*Context we are in, defining which global valuation to read and update*)
+  signal_state : waitings; (*Map from signal name to list of awaiting bodies and their context*)
+  vgA : valuation; (*Global valuation of the first program*)
+  vgB: valuation; (*Global valuation of the second program*)
 }.
 
 
@@ -351,6 +343,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
     | O => None
     | S fuel' => match current ds with
         | 1 => match st with
+            (*if not already defined, interp expression, then assign it in local val*)
             | varDeclStmt name e => match (vl $? name) with
                 | Some _ => None (*If name already defined in local, crash*)
                 | None => match interp2 e (vgA ds) vl with
@@ -358,11 +351,13 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     | None => None
                     end
                 end
+             (* If expr is >= 1 then run s1 else if expr is 0 then run s2 else crash *)
             | ifStmt e s1 s2 => match interp2 e (vgA ds) vl with
                 | Some 0 => runStmtDual fuel' ds vl s2
                 | Some _n => runStmtDual fuel' ds vl s1
                 | None => None
                 end
+            (* While e <> 0, run s, else skip *)
             | whileStmt e s => match interp2 e (vgA ds) vl with
                 | Some 0 => Some (ds, vl)
                 | Some _n => match runStmtDual fuel' ds vl s with
@@ -371,6 +366,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     end
                 | None => None
                 end
+            (*If name defined in local, reassign it with value of e, else do the same for global, else crash *)
             | assignmentStmt name e => match vl $? name with
                 | Some _ => match interp2 e (vgA ds) vl with
                     | Some n => Some (ds, vl $+ (name, varAss n))
@@ -384,7 +380,11 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     | None => None
                     end
                 end
+            (*Skip, await is checked in sequence, because await as last instruction does nothing anyways*)
             | await sig_name => Some (ds, vl)
+            (*If s1 is await:
+                add (waiting s2) to global valuation then skip, 
+             else just run s1 then s2*)
             | sequence s1 s2 => match s1 with
                 | awaitStmt sig_name => Some ({| current := current ds; signal_state := signal_state ds $F+ (sig_name, waitAss 1 s2); vgA := vgA ds; vgB := vgB ds |}, vl)
                 | _ => match runStmtDual fuel' ds vl s1 with
@@ -392,6 +392,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     | None => None
                     end
                 end
+            (*Get method, match arguments to parameters. If we want to assign the return value, read it in the local var of the executed func, then assign it*)
             | assignCallMethodStmt ret method_name args => match (vgA ds) $? method_name with
                 | Some (methodAss name_args found_ret found_body) => match unifyArgs (vgA ds) vl args name_args with
                     | Some newLocal => match (runStmtDual fuel' ds newLocal found_body) with
@@ -414,6 +415,8 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     end
                 | _ => None
                 end
+            (*Check for callback (if exists, call this function with args of signal in the correct context),
+             then check for awaiting bodies (if exist, run them in the correct context then resume)*)
             | emitSignalStmt sig_name opt_callback args => match opt_callback with
             (*Context switch if n = 2*)
                 | Some (f, 1) => match evalArgs (vgA ds) vl args with
@@ -656,6 +659,7 @@ Fixpoint initProg (fuel: nat) (ds: dual_state) (d: topLevelDecl) : option (dual_
                 | Some (ds2, vl2) => Some (ds2, None)
                 | None => None
                 end
+            (*Return body of the process*)
             | processDecl body => Some (ds, Some body)
             | SequenceDecl d1 d2 => match initProg fuel' ds d1 with
                 | Some (dsA, pA) => match initProg fuel' dsA d2 with
@@ -683,6 +687,7 @@ Fixpoint initProg (fuel: nat) (ds: dual_state) (d: topLevelDecl) : option (dual_
                 | None => None
                 end
             | processDecl body => Some (ds, Some body)
+            (*Return the final valuation after initialization and the body of the process if any*)
             | SequenceDecl d1 d2 => match initProg fuel' ds d1 with
                 | Some (dsA, pA) => match initProg fuel' dsA d2 with
                     | Some (dsB, pB) => Some (dsB, match pA with

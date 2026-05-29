@@ -1,9 +1,4 @@
-(**
-    NOTE: this is an association list, so it does NOT give a canonical
-    representation and does NOT satisfy fmap_ext. Use it for executable test
-    theorems; if you also need extensional equality for abstract correctness
-    proofs, keep Lab07Map for those (or move to a canonical map like a sorted
-    list / stdpp gmap). *)
+(**Disclaimer: AI generated to replace map from Lab07 *)
 
 From Stdlib Require Import String List Bool.
 Import ListNotations.
@@ -76,6 +71,11 @@ Proof.
       * reflexivity.
       * exact IH.
 Qed.
+
+
+
+(*NB: We added this part later to have a list of waiting bodies in the valuation.
+Could also be used in the future to have binding statements and a list of callbacks to the valuation, with some tweaking*)
 
 Definition set {A B} `{Eqb A} (m : fmap A B) (k : A) (v : B) : fmap A B :=
   (k, v) :: (m $- k).

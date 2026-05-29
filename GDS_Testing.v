@@ -48,7 +48,7 @@ Proof.
 Qed.
 
 
-Theorem globalExe1 :
+Theorem runCall :
     exists ms2, (run 5 defaultStateMono 
     ((((topVar "a" := Const 9 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump")  (var "dump" := (Var "a" + Const 1))) ;;;
@@ -59,7 +59,7 @@ Proof.
 Qed.
 
 
-Theorem globalExe2 :
+Theorem runCallShadowing :
     exists ms2, (run 6 defaultStateMono 
     (((topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ) ;;;
     methodDecl "plusOne" nil (Some "dump") (var "a" := Const 9 ;; var "dump" := (Var "a" + Const 1))) ;;;
@@ -71,7 +71,7 @@ Qed.
 
 
 (*New example existential_matching assignations*)
-Theorem globalExe3 :
+Theorem SimpleAssign :
     exists ms2, (run 6 defaultStateMono 
     ((topVar "a" := Const 3) ;;;
     readyDecl ("a" <- Const 8 ;; skip) ;;; EndDecl)) = Some ms2 
@@ -205,7 +205,7 @@ Definition dB1 := (topVar "a" := Const 3 ;;; topVar "ret" := Const 0 ;;;
     readyDecl (assignCallMethodStmt (Some "ret") "plusOne" nil) ;;; EndDecl).
 
 
-
+(*Non interacting programs don't overlap even with duplicate names*)
 Theorem RunDualProgsNoOverlap :
     exists ds2, (runDual 11 defaultVal (dA1, dB1)
     ) = Some ds2 
@@ -222,6 +222,7 @@ Definition dA2 := (topVar "ret" := Const 3 ;;;
 Definition dB2 := readyDecl (emitSignalStmt "sigB" None nil) ;;; EndDecl.
 
 
+(*Awaiting a signal in another node*)
 Theorem RunDualSimpleAwait :
     exists ds2, (runDual 10 defaultVal (dA2, dB2)
     ) = Some ds2 
@@ -316,7 +317,7 @@ Proof.
 Qed.
 
 
-(*Very strong theorem*)
+(*This theorem is pretty strong to show the execution order*)
 Theorem RunDualProgsAwait :
     exists ds2, (runDual 14 defaultVal (dA4, dB4)
     ) = Some ds2 
@@ -405,7 +406,7 @@ Definition dB3OOO := (
     topVar "ret" := Const 0 ;;; 
     EndDecl).
 
-(*Context switch for await but not callback*)
+(*Process defined as first statement instead of at the end*)
 Theorem OutOfOrderRunDualEmitSignalCallbackAndAwait3 :
     exists ds2, (runDual 10 defaultVal (dA3OOO, dB3OOO)
     ) = Some ds2 
@@ -441,6 +442,31 @@ Qed.
 
 
 (*Example of real life program*)
+
+(*Pseudo code:
+
+Class Player
+    var health = 11
+    var dead = 0 (used as a boolean)
+
+    func takeDamage(dmg: int) -> void :
+        health -= dmg
+        if health == 1:
+            dead = 1
+
+
+Class Enemy
+    var strength = 2
+    var counter = 0
+
+    func hit(bonus: int) -> void :
+        emit signal "hitPlayer" (callback: player.takeDamage(strentgh + bonus))
+    
+    func process() -> void:
+        if counter == 2 or counter == 4:
+            hit(counter)
+        counter +=1
+*)
 
 Definition playerClass := (topVar "health" := Const 11 ;;; topVar "dead" := Const 0 ;;;
     methodDecl "takeDamage" ("dmg" :: nil) None 
@@ -513,6 +539,7 @@ Lemma subTest5 :
 Proof. prover. Qed.
 
 
+(*STRONGEST EXAMPLE YET*)
 Theorem actualProgram :
     exists ds2, runDual 40 defaultVal (playerClass, enemyClass) = Some ds2
      /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
@@ -557,16 +584,3 @@ Theorem NonCompilingProgram5 :
     Proof.
         prover.
     Qed.
-
-
-(*Nouvelle idée de théorème, runMono = RunDual with EndDecl*)
-Theorem RunMonoEqualsRunDualEnd : 
-    forall fuel d ms2, run fuel defaultStateMono d = Some ms2 -> exists fuel' ds2, (runDual fuel' defaultVal (d, EndDecl)) = Some ds2 /\ vgA ds2 = vg ms2.
-Proof.
-Admitted.
-              
-
-Theorem RunDualSymmetric :
-    forall fuel d ms21, runDual fuel defaultVal (d, EndDecl) = Some ms21 -> exists ms22, runDual fuel defaultVal (EndDecl, d) = Some ms22 /\ vgA ms21 = vgB ms22.
-Proof.
-Admitted.
