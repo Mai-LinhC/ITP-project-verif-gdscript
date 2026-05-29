@@ -155,6 +155,31 @@ Record mono_state := {
     sig_state: waitings;
 }.
 
+Definition unifyArgs (vg vl: valuation) (args: list expr) (name_args: list string) : option valuation :=
+(fold_left
+    (fun (opt_acc: option valuation) (arg_argname: expr * string) =>
+    match opt_acc with
+    | Some acc =>
+        match interp2 (fst arg_argname) vg vl with
+            | Some n => Some (acc $+ (snd arg_argname, varAss n))
+            | None => None
+            end
+    | None => None
+    end
+    ) (combine args name_args) (Some $0)).
+
+
+Definition evalArgs (vg vl: valuation) (args: list expr) : option (list expr) :=
+    (fold_right
+        (fun (e: expr) (opt_acc: option (list expr)) => match opt_acc with
+            | Some acc => match interp2 e vg vl with
+                | Some n => Some (Const n :: acc)
+                | None => None
+                end
+            | None => None
+            end
+        ) (Some nil) args).
+
 
 Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option (mono_state * valuation) :=
     match fuel with
@@ -212,31 +237,22 @@ Fixpoint runStmt (fuel: nat) (ms: mono_state) (vl: valuation) (st: stmt): option
             end
         (*Get method, match arguments to parameters. If we want to assign the return value, read it in the local var of the executed func, then assign it*)
         | assignCallMethodStmt ret method_name args => match vg ms $? method_name with
-            | Some (methodAss name_args found_ret found_body) => match 
-                (runStmt fuel' ms
-                (fold_left 
-                    (fun (acc: valuation) (arg_argname: expr * string) => 
-                        match interp2 (fst arg_argname) (vg ms) vl with
-                        | Some n => (acc $+ ((snd arg_argname), varAss n))
-                        (*If we give an argument that isn't defined, it is not added to the valuation.
-                        this might not be the correct behavior (would be better if the whole runStmt returned None. TODO: investigate)*)
-                        | None => acc
-                        end
-                    ) 
-                    (combine args name_args) ($0)) 
-                found_body) with
-                | Some (msmid, vlmid) => match ret, found_ret with
-                    | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
-                        | Some r => match runStmt fuel' msmid vl (assignmentStmt s_ret (Const r)) with
-                            | Some (ms2, vl2) => Some (ms2, vl2)
-                            | None => Some (msmid, vl $+ (s_ret, varAss r))
+            | Some (methodAss name_args found_ret found_body) => match unifyArgs (vg ms) vl args name_args with
+                | Some newLocal => match (runStmt fuel' ms newLocal found_body) with
+                    | Some (msmid, vlmid) => match ret, found_ret with
+                        | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
+                            | Some r => match runStmt fuel' msmid vl (assignmentStmt s_ret (Const r)) with
+                                | Some (ms2, vl2) => Some (ms2, vl2)
+                                | None => Some (msmid, vl $+ (s_ret, varAss r))
+                                end
+                            | None => None 
                             end
-                        | None => None 
+                        (*Assigning void to a var*)
+                        | Some _, None => None
+                        (*Not reading the return of a non-void func*)
+                        | None, _ => Some (msmid, vl)
                         end
-                    (*Assigning void to a var*)
-                    | Some _, None => None
-                    (*Not reading the return of a non-void func*)
-                    | None, _ => Some (msmid, vl)
+                    | None => None
                     end
                 | None => None
                 end
@@ -377,15 +393,8 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     end
                 end
             | assignCallMethodStmt ret method_name args => match (vgA ds) $? method_name with
-                | Some (methodAss name_args found_ret found_body) => let newLocal :=  (fold_left
-                        (fun (acc: valuation) (arg_argname: expr * string) =>
-                            match interp2 (fst arg_argname) (vgA ds) vl with
-                                | Some n => (acc $+ (snd arg_argname, varAss n))
-                                | None => acc
-                                end
-                                )
-                                (combine args name_args) $0) in match
-                    (runStmtDual fuel' ds newLocal found_body) with
+                | Some (methodAss name_args found_ret found_body) => match unifyArgs (vgA ds) vl args name_args with
+                    | Some newLocal => match (runStmtDual fuel' ds newLocal found_body) with
                         | Some (dsmid, vlmid) => match ret, found_ret with
                             | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
                                 | Some r => match runStmtDual fuel' dsmid vl (assignmentStmt s_ret (Const r)) with
@@ -401,53 +410,61 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                             end
                         | None => None
                         end
+                    | None => None
+                    end
                 | _ => None
                 end
             | emitSignalStmt sig_name opt_callback args => match opt_callback with
             (*Context switch if n = 2*)
-                | Some (f, 1) => match runStmtDual fuel' ds vl (assignCallMethodStmt None f args) with
-                    (*Check for waiting bodies*)
-                    | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
-                        | nil => Some (dsmid, vlmid)
-                        | l => fold_left
-                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
-                                match acc, w with
-                                | Some (ds_acc, vl_acc), waitAss 1 body =>
-                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | Some (ds_acc, vl_acc), waitAss 2 body =>
-                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | _, _ => None
-                                end)
-                            l (Some (dsmid, vlmid))
+                | Some (f, 1) => match evalArgs (vgA ds) vl args with
+                    | Some newArgs => match runStmtDual fuel' ds vl (assignCallMethodStmt None f newArgs) with
+                        (*Check for waiting bodies*)
+                        | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
+                            | nil => Some (dsmid, vlmid)
+                            | l => fold_left
+                                (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                    match acc, w with
+                                    | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                        match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                        match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | _, _ => None
+                                    end)
+                                l (Some (dsmid, vlmid))
+                            end
+                        | None => None
                         end
                     | None => None
                     end
-                | Some (f, 2) => match runStmtDual fuel' {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
-                        (*Switch back if no waiting*)
-                        | nil => Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid)
-                        | l => fold_left
-                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
-                                match acc, w with
-                                | Some (ds_acc, vl_acc), waitAss 1 body =>
-                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | Some (ds_acc, vl_acc), waitAss 2 body =>
-                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | _, _ => None
-                                end)
-                            l (Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid))
+                | Some (f, 2) => match evalArgs (vgA ds) vl args with
+                    | Some newArgs => match runStmtDual fuel' {|current := 2; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f newArgs) with
+                        | Some (dsmid, vlmid) => match (signal_state dsmid) $F? sig_name with
+                            (*Switch back if no waiting*)
+                            | nil => Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid)
+                            | l => fold_left
+                                (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                    match acc, w with
+                                    | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                        match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                        match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 1; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | _, _ => None
+                                    end)
+                                l (Some ({|current := 1; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlmid))
+                            end
+                        | None => None
                         end
                     | None => None
                     end
@@ -517,15 +534,8 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                     end
                 end
             | assignCallMethodStmt ret method_name args => match (vgB ds) $? method_name with
-                | Some (methodAss name_args found_ret found_body) => let newLocal :=  (fold_left
-                        (fun (acc: valuation) (arg_argname: expr * string) =>
-                            match interp2 (fst arg_argname) (vgB ds) vl with
-                                | Some n => (acc $+ (snd arg_argname, varAss n))
-                                | None => acc
-                                end
-                                )
-                                (combine args name_args) $0) in
-                match (runStmtDual fuel' ds newLocal found_body) with
+                | Some (methodAss name_args found_ret found_body) => match unifyArgs (vgB ds) vl args name_args with
+                    | Some newLocal => match (runStmtDual fuel' ds newLocal found_body) with
                         | Some (dsmid, vlmid) => match ret, found_ret with
                             | Some s_ret, Some s_found_ret => match interp (Var s_found_ret) vlmid with
                                 | Some r => match runStmtDual fuel' dsmid vl (assignmentStmt s_ret (Const r)) with
@@ -541,52 +551,60 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                             end
                         | None => None
                         end
+                    | None => None
+                    end
                 | _ => None
                 end
             | emitSignalStmt sig_name opt_callback args => match opt_callback with
             (*Context switch if n = 1*)
                 (*NB: there is a world where this is wrong because we context switch but still keep the same local val, which we return later after switching back*)
-                | Some (f, 1) => match runStmtDual fuel' {|current := 1; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
-                        | nil => Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd)
-                        | l => fold_left
-                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
-                                match acc, w with
-                                | Some (ds_acc, vl_acc), waitAss 1 body =>
-                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | Some (ds_acc, vl_acc), waitAss 2 body =>
-                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | _, _ => None
-                                end)
-                            l (Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd))
+                | Some (f, 1) => match evalArgs (vgB ds) vl args with
+                    | Some newArgs => match runStmtDual fuel' {|current := 1; signal_state := signal_state ds; vgA := vgA ds; vgB := vgB ds |} vl (assignCallMethodStmt None f newArgs) with
+                        | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
+                            | nil => Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd)
+                            | l => fold_left
+                                (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                    match acc, w with
+                                    | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                        match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                        match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | _, _ => None
+                                    end)
+                                l (Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd))
+                            end
+                        | None => None
                         end
                     | None => None
                     end
-                | Some (f, 2) => match runStmtDual fuel' ds vl (assignCallMethodStmt None f args) with
-                    | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
-                        | nil => Some (dsmid, vlimd)
-                        | l => fold_left
-                            (fun (acc : option (dual_state * valuation)) (w : waiting) =>
-                                match acc, w with
-                                | Some (ds_acc, vl_acc), waitAss 1 body =>
-                                    match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | Some (ds_acc, vl_acc), waitAss 2 body =>
-                                    match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
-                                        | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
-                                        | None => None
-                                        end
-                                | _, _ => None
-                                end)
-                            l (Some (dsmid, vlimd))
+                | Some (f, 2) => match evalArgs (vgB ds) vl args with
+                    | Some newArgs => match runStmtDual fuel' ds vl (assignCallMethodStmt None f newArgs) with
+                        | Some (dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
+                            | nil => Some (dsmid, vlimd)
+                            | l => fold_left
+                                (fun (acc : option (dual_state * valuation)) (w : waiting) =>
+                                    match acc, w with
+                                    | Some (ds_acc, vl_acc), waitAss 1 body =>
+                                        match runStmtDual fuel' {| current := 1; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | Some (ds_acc, vl_acc), waitAss 2 body =>
+                                        match runStmtDual fuel' {| current := 2; signal_state := signal_state ds_acc $F- sig_name; vgA := vgA ds_acc; vgB := vgB ds_acc |} $0 body with
+                                            | Some (ds2, _vl2) => Some ({| current := 2; signal_state := signal_state ds2; vgA := vgA ds2; vgB := vgB ds2 |}, vl_acc)
+                                            | None => None
+                                            end
+                                    | _, _ => None
+                                    end)
+                                l (Some (dsmid, vlimd))
+                            end
+                        | None => None
                         end
                     | None => None
                     end

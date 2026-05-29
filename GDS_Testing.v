@@ -440,6 +440,86 @@ Proof.
 Qed.
 
 
+(*Example of real life program*)
+
+Definition playerClass := (topVar "health" := Const 11 ;;; topVar "dead" := Const 0 ;;;
+    methodDecl "takeDamage" ("dmg" :: nil) None 
+        ("health" <- Var "health" - Var "dmg" ;; 
+        when (Var "health" == Const 1) then ("dead" <- Const 1) else (skip) done))
+        ;;; EndDecl.
+
+Definition enemyClass := (topVar "strength" := Const 2 ;;; topVar "counter" := Const 0 ;;;
+    methodDecl "hit" ("bonus" :: nil) None
+    (emitSignalStmt "hitPlayer" (Some ("takeDamage", 1)) ((Var "strength" + Var "bonus") :: nil))) ;;;
+    processDecl (when (Var "counter" == Const 2) then (assignCallMethodStmt None "hit" ((Var "counter"):: nil)) else 
+    (when (Var "counter" == Const 4) then (assignCallMethodStmt None "hit" ((Var "counter"):: nil)) else skip done) done ;;
+    "counter" <- Var "counter" + Const 1;; skip) ;;; EndDecl.
+
+
+Definition testClass1 := (readyDecl (emitSignalStmt "test" (Some ("takeDamage", 1)) (Const 10 :: nil));;; EndDecl).
+
+Lemma subTest1 : 
+    exists ds2, runDual 10 defaultVal (playerClass, testClass1) = Some ds2
+    /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof.
+    prover.
+Qed.
+
+Definition testClass2 := (methodDecl "hit" nil None
+(emitSignalStmt "hitPlayer" (Some ("takeDamage", 1)) ((Const 10) :: nil))) ;;;
+(readyDecl (assignCallMethodStmt None "hit" nil);;; EndDecl).
+
+Lemma subTest2 : 
+    exists ds2, runDual 10 defaultVal (playerClass, testClass2) = Some ds2
+    /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof.
+    prover.
+Qed.
+
+Definition testClass3 := 
+(methodDecl "hit" ("dmg" :: nil) None
+    (emitSignalStmt "hitPlayer" (Some ("takeDamage", 1)) ((Var "dmg") :: nil))) ;;;
+(readyDecl (assignCallMethodStmt None "hit" (Const 10 :: nil));;; EndDecl).
+
+
+Lemma subTest3 : 
+    exists ds2, runDual 10 defaultVal (playerClass, testClass3) = Some ds2
+    /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof.
+    prover.
+Qed.
+
+
+Definition testClass4 := topVar "strength" := Const 10 ;;;
+(methodDecl "hit" ("dmg" :: nil) None
+    (emitSignalStmt "hitPlayer" (Some ("takeDamage", 1)) ((Var "dmg") :: nil))) ;;;
+readyDecl (assignCallMethodStmt None "hit" (Var "strength" :: nil));;; EndDecl.
+
+
+Lemma subTest4 : 
+    exists ds2, runDual 10 defaultVal (playerClass, testClass4) = Some ds2
+    /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof. prover. Qed.
+
+
+Definition testClass5 := (topVar "strength" := Const 8 ;;; topVar "counter" := Const 2 ;;;
+    methodDecl "hit" ("dmg" :: nil) None
+    (emitSignalStmt "hitPlayer" (Some ("takeDamage", 1)) ((Var "strength" + Var "dmg") :: nil))) ;;; 
+    readyDecl (assignCallMethodStmt None "hit" ((Var "counter") :: nil));;; EndDecl.
+
+Lemma subTest5 : 
+    exists ds2, runDual 15 defaultVal (playerClass, testClass5) = Some ds2
+    /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof. prover. Qed.
+
+
+Theorem actualProgram :
+    exists ds2, runDual 40 defaultVal (playerClass, enemyClass) = Some ds2
+     /\ (vgA ds2 $? "health" = Some (varAss 1)) /\ (vgA ds2 $? "dead" = Some (varAss 1)).
+Proof.
+    prover.
+Qed.
+
 
 (*Tests that non-compiling programs return None*)
 
