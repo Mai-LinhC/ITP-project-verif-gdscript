@@ -456,11 +456,10 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
             | assignmentStmt name e => match vl $? name with
                 | Some _ => (interp2 e (vgB ds) vl) >>=
                     (fun n => Some (ds, vl $+ (name, varAss n)))
-                | None => match (vgB ds) $? name with 
-                    | Some _ => (interp2 e (vgB ds) vl) >>=
+                | None => ((vgB ds) $? name) >>= 
+                    (fun _ => (interp2 e (vgB ds) vl) >>=
                         (fun n => Some ({|current := current ds; signal_state := signal_state ds; vgA := vgA ds; vgB := (vgB ds $+ (name, varAss n)) |}, vl))
-                    | None => None
-                    end
+                    )
                 end
             | await sig_name => Some (ds, vl)
             | sequence s1 s2 => match s1 with
@@ -492,7 +491,7 @@ Fixpoint runStmtDual (fuel: nat) (ds: dual_state) (vl: valuation) (st: stmt) : o
                 | Some (f, 1) => (evalArgs (vgB ds) vl args) >>=
                     (fun newArgs => (runStmtDual fuel' (set_current 1 ds) vl (assignCallMethodStmt None f newArgs)) >>=
                         (fun '(dsmid, vlimd) => match (signal_state dsmid) $F? sig_name with
-                            | nil => Some ({|current := 2; signal_state := signal_state dsmid; vgA := vgA dsmid; vgB := vgB dsmid |}, vlimd)
+                            | nil => Some (set_current 2 dsmid, vlimd)
                             | l => fold_left
                                 (fun (acc : option (dual_state * valuation)) (w : waiting) =>
                                     match acc, w with
