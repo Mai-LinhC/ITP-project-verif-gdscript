@@ -1,7 +1,7 @@
 Require Import CompMap.
 Require Import GDS_Language. 
 From Stdlib Require Import String.
-Require Import List.
+From Stdlib Require Import List.
 Open Scope string_scope.
 Open Scope expr.
 
